@@ -1,0 +1,174 @@
+/* chart.css - Chart canvas, overlay, tooltip, legend, status bar */
+
+.ac-chart-container {
+    background: var(--ac-bg);
+}
+
+/* Tooltip */
+.ac-tooltip {
+    position: absolute;
+    display: none;
+    background: rgba(20, 24, 32, 0.96);
+    border: 1px solid var(--ac-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--ac-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ac-text);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    min-width: 140px;
+}
+
+.ac-tooltip-header {
+    font-weight: 600;
+    color: var(--ac-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--ac-border);
+}
+
+.ac-tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.ac-tooltip-row span {
+    color: var(--ac-muted);
+    font-weight: 500;
+}
+
+.ac-tooltip-row b {
+    font-weight: 600;
+    color: var(--ac-text);
+}
+
+/* Legend (top-left OHLC display) */
+.ac-legend {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    pointer-events: none;
+    z-index: 5;
+    font-family: var(--ac-mono);
+    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px;
+    background: rgba(20, 24, 32, 0.6);
+    border-radius: 4px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.ac-legend-symbol {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ac-text);
+    margin-bottom: 2px;
+    font-family: var(--ac-font);
+}
+
+.ac-legend-price {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.ac-legend-change {
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.ac-legend-ohlcv {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--ac-muted);
+}
+
+.ac-legend-ohlcv b {
+    color: var(--ac-text);
+    font-weight: 600;
+}
+
+/* Status bar */
+.ac-statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--ac-surface);
+    border-top: 1px solid var(--ac-border);
+    padding: 0 12px;
+    font-family: var(--ac-mono);
+    font-size: 10px;
+    color: var(--ac-muted);
+    height: var(--ac-statusbar-h);
+    overflow: hidden;
+}
+
+.ac-statusbar-left, .ac-statusbar-right {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+}
+
+.ac-statusbar b {
+    color: var(--ac-text);
+    font-weight: 600;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    :root {
+        --ac-toolbar-h: 40px;
+        --ac-statusbar-h: 22px;
+    }
+
+    .ac-legend {
+        font-size: 10px;
+        top: 4px;
+        left: 4px;
+        padding: 4px 6px;
+    }
+
+    .ac-legend-symbol {
+        font-size: 11px;
+    }
+
+    .ac-legend-price {
+        font-size: 12px;
+    }
+
+    .ac-legend-ohlcv {
+        gap: 6px;
+        font-size: 9px;
+    }
+
+    .ac-tooltip {
+        font-size: 10px;
+        min-width: 120px;
+        padding: 6px 8px;
+    }
+
+    .ac-statusbar-left, .ac-statusbar-right {
+        gap: 8px;
+    }
+}
+
+@media (max-width: 480px) {
+    .ac-statusbar-left span:nth-child(3),
+    .ac-statusbar-right span:nth-child(2) {
+        display: none;
+    }
+}

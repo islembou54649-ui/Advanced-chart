@@ -1,0 +1,113 @@
+/* main.css - Base reset and global styles */
+
+:root {
+    --ac-up: #089981;
+    --ac-down: #f23645;
+    --ac-accent: #2962ff;
+    --ac-bg: #0e1117;
+    --ac-surface: #0a0d12;
+    --ac-text: #cfd3dc;
+    --ac-muted: #6e7681;
+    --ac-border: rgba(255, 255, 255, 0.06);
+    --ac-toolbar-h: 44px;
+    --ac-statusbar-h: 24px;
+    --ac-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --ac-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--ac-bg);
+    color: var(--ac-text);
+    font-family: var(--ac-font);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+#chart-root {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ac-root {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--ac-bg);
+}
+
+.ac-toolbar-container {
+    flex: 0 0 auto;
+    height: var(--ac-toolbar-h);
+}
+
+.ac-chart-container {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+}
+
+.ac-canvas-container {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+}
+
+.ac-canvas-container canvas {
+    display: block;
+}
+
+.ac-overlay-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.ac-status-container {
+    flex: 0 0 auto;
+    height: var(--ac-statusbar-h);
+}
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: inherit;
+}
+
+button:focus-visible {
+    outline: 2px solid var(--ac-accent);
+    outline-offset: 1px;
+}
+
+select {
+    font-family: inherit;
+}
+
+/* Prevent text selection during chart interactions */
+.ac-canvas-container, .ac-toolbar, .ac-statusbar {
+    user-select: none;
+    -webkit-user-select: none;
+}
