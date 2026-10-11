@@ -206,6 +206,10 @@ export class DrawingManager {
             if (this._currentDrawing.isComplete) {
                 this.add(this._currentDrawing);
                 this._currentDrawing = null;
+                // FIX: was staying active allowing unlimited drawings.
+                // User wants: draw once, then auto-exit tool mode (back to cursor).
+                // To draw again, click the tool button again.
+                if (this._onToolComplete) this._onToolComplete();
             }
         }
     }

@@ -83,6 +83,11 @@ export class ChartEngine {
         // Drawing manager
         this.drawingManager = new DrawingManager();
         this.drawingManager._viewport = this.viewport;
+        // When a drawing is completed, auto-exit tool mode (back to cursor).
+        // User must click the tool button again to draw another.
+        this.drawingManager._onToolComplete = () => {
+            this.setActiveTool(null);
+        };
         this.activeTool = null;
 
         // Indicator manager (creates PaneManager internally)
@@ -129,7 +134,12 @@ export class ChartEngine {
 
     init() {
         this.dataFeed.generateHistory(1500);
-        this.viewport.fitRange(150, 10);
+        // FIX: was fitRange(150, 10) which showed the FIRST 150 bars (oldest).
+        // User expects the chart to open on the MOST RECENT candles.
+        // Set barSpacing to a sensible default then scroll to the right edge.
+        this.viewport.barSpacing = 8;
+        this.viewport.rightOffset = 10;
+        this.viewport.scrollToRight(this.dataManager.size);
         this.viewport.updatePriceRange(this.dataManager);
         this.statusBar.setBars(this.dataManager.size);
         this.statusBar.setDrawings(0);
@@ -178,16 +188,17 @@ export class ChartEngine {
         ctx.fillStyle = theme.chartBg;
         ctx.fillRect(0, 0, vp.width, vp.height);
 
-        // 2. Price grid + Y-axis (draws horizontal gridlines)
+        // 2. Price grid + Y-axis (draws horizontal gridlines + price labels)
         this.priceScale.draw(ctx, vp, theme);
 
-        // 3. Time grid + X-axis (draws vertical gridlines)
-        this.timeScale.draw(ctx, vp, dm, theme);
+        // 3. Vertical time gridlines ONLY (no labels — labels go on the bottom time axis strip)
+        this.timeScale.drawGridlines(ctx, vp, dm, theme, vp.width, vp.priceHeight);
 
-        // 4. Candles (CLIPPED to chart area, not under price scale)
+        // 4. Candles (CLIPPED to chart area, with 5% bottom padding so candles don't touch the time axis)
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, 0, vp.width - this.priceScale.width, vp.priceHeight);
+        const bottomPadding = vp.priceHeight * 0.05; // 5% gap
+        ctx.rect(0, 0, vp.width - this.priceScale.width, vp.priceHeight - bottomPadding);
         ctx.clip();
         this.candleSeries.draw(ctx, vp, dm, theme);
 
@@ -209,6 +220,9 @@ export class ChartEngine {
             this._renderPane(pane, vp, dm, theme);
         }
 
+        // === TIME AXIS STRIP (very bottom) ===
+        this._renderTimeAxis(vp, dm, theme);
+
         // === DOM OVERLAYS ===
         const pointerIdx = this.eventManager.pointerInside
             ? Math.round(this.viewport.xToIndex(this.eventManager.pointerX - this.viewport.barSpacing / 2))
@@ -226,6 +240,38 @@ export class ChartEngine {
 
         this.perf.endRender();
         this.perf.tick();
+    }
+
+    /**
+     * Render the dedicated time axis strip at the very bottom of the chart.
+     * This is the ONLY place time labels appear — panes only draw vertical gridlines.
+     * Also draws the crosshair's time label here.
+     */
+    _renderTimeAxis(vp, dm, theme) {
+        const taPane = this.indicatorManager.paneManager.timeAxisPane;
+        if (!taPane) return;
+        const ctx = taPane.canvas.getContext();
+        const w = taPane.canvas.cssWidth;
+        const h = taPane.canvas.cssHeight;
+        this.timeScale.priceScaleWidth = this.priceScale.width;
+        this.timeScale.drawLabels(ctx, vp, dm, theme, w, h);
+        // Draw crosshair vertical line on the time axis strip too
+        if (this.crosshair.visible) {
+            ctx.save();
+            ctx.strokeStyle = theme.crosshairColor;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            const snappedX = this.crosshair.snapToBar ? this.crosshair._snapX(vp) : this.crosshair.x;
+            ctx.beginPath();
+            ctx.moveTo(snappedX + 0.5, 0);
+            ctx.lineTo(snappedX + 0.5, h);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+            // Crosshair time label
+            this.crosshair._priceScaleWidth = this.priceScale.width;
+            this.crosshair.drawTimeLabel(ctx, vp, dm, theme, w, h);
+        }
     }
 
     _renderPane(pane, vp, dm, theme) {

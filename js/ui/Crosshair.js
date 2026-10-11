@@ -76,28 +76,38 @@ export class Crosshair {
             ctx.fillText(label, tx + tagW / 2, ty + tagH / 2);
         }
 
-        // Time label on the bottom axis
-        if (this.showTimeLabel) {
-            const idx = Math.round(snappedIdx);
-            if (idx >= 0 && idx < dm.size) {
-                const time = dm.times[idx];
-                const d = new Date(time);
-                const label = this._formatTime(d, dm.interval);
-                ctx.font = "bold 11px 'JetBrains Mono', monospace";
-                const metrics = ctx.measureText(label);
-                const tagW = metrics.width + 14;
-                const tagH = 18;
-                const tx = Math.max(0, Math.min(viewport.width - this._priceScaleWidth - tagW, snappedX - tagW / 2));
-                const ty = viewport.height - this._timeScaleHeight;
-                ctx.fillStyle = theme.crosshairLabelBg;
-                ctx.fillRect(tx, ty, tagW, tagH);
-                ctx.fillStyle = theme.crosshairLabelText;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(label, tx + tagW / 2, ty + tagH / 2);
-            }
-        }
+        // Time label is now drawn on the dedicated time axis strip by ChartEngine._renderTimeAxis
+        // (not on the main pane, since the time axis is a separate canvas at the bottom).
 
+        ctx.restore();
+    }
+
+    /**
+     * Draw the time label on the dedicated time axis strip canvas.
+     */
+    drawTimeLabel(ctx, viewport, dm, theme, stripW, stripH) {
+        if (!this.visible) return;
+        const snappedX = this.snapToBar ? this._snapX(viewport) : this.x;
+        const snappedIdx = viewport.xToIndex(snappedX);
+        if (!this.showTimeLabel) return;
+        const idx = Math.round(snappedIdx);
+        if (idx < 0 || idx >= dm.size) return;
+        const time = dm.times[idx];
+        const d = new Date(time);
+        const label = this._formatTime(d, dm.interval);
+        ctx.save();
+        ctx.font = "bold 11px 'JetBrains Mono', monospace";
+        const metrics = ctx.measureText(label);
+        const tagW = metrics.width + 14;
+        const tagH = 18;
+        const tx = Math.max(0, Math.min(stripW - this._priceScaleWidth - tagW, snappedX - tagW / 2));
+        const ty = (stripH - tagH) / 2;
+        ctx.fillStyle = theme.crosshairLabelBg;
+        ctx.fillRect(tx, ty, tagW, tagH);
+        ctx.fillStyle = theme.crosshairLabelText;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, tx + tagW / 2, ty + tagH / 2);
         ctx.restore();
     }
 

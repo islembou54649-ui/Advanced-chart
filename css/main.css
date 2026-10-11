@@ -129,3 +129,8 @@ select { font-family: inherit; }
 .ac-pane-resize-handle:active {
     background: var(--ac-accent);
 }
+.ac-pane-timeaxis {
+    flex: 0 0 28px !important;
+    flex-grow: 0 !important;
+    border-top: 1px solid var(--ac-border);
+}

@@ -134,7 +134,10 @@ export class EventManager {
             }
 
             if (this.activeAction === 'pan') {
-                this.engine.viewport.panBy(-dx);
+                // FIX: was panBy(-dx) which made dragging reversed (drag right → saw newer bars).
+                // TradingView behavior: drag right → chart follows cursor → see OLDER bars.
+                // panBy(dx) decreases scrollPosition when dx>0, showing older bars. Correct.
+                this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
                 if (!this.engine.viewport.autoScale && dy !== 0) {
                     const range = this.engine.viewport.priceRange;
@@ -202,7 +205,24 @@ export class EventManager {
         this.engine.requestRender();
     }
 
-    _onContextMenu(e) { e.preventDefault(); }
+    _onContextMenu(e) {
+        e.preventDefault();
+        // FIX: Right-click on a drawing selects it and shows the settings card.
+        // Right-click on empty chart does nothing (just prevents browser menu).
+        const { x, y } = this._getPos(e);
+        const drawing = this.engine.drawingManager.hitTestTopMost(x, y);
+        if (drawing) {
+            // Select this drawing and show its settings card
+            this.engine.drawingManager.handleClick(x, y);
+            if (this.engine.drawingManager.selectedId === drawing.id) {
+                this.engine.settingsCard.show(drawing);
+            }
+        } else {
+            // If a settings card is open and user right-clicks elsewhere, hide it
+            this.engine.settingsCard.hide();
+        }
+        this.engine.requestRender();
+    }
 
     _onKeyDown(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;

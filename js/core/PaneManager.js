@@ -27,14 +27,31 @@ export class PaneManager {
     }
 
     /**
-     * Initialize with a single main pane.
+     * Initialize with a single main pane + a dedicated time axis strip at the bottom.
      */
     init(initialHeight) {
         this.panes = [];
         const main = this._createPane('main', 'Price', initialHeight, true);
         this.panes.push(main);
+        // Create the time axis strip (always at the very bottom, fixed height)
+        this.timeAxisPane = this._createTimeAxisPane(28);
         this._layout();
         return main;
+    }
+
+    _createTimeAxisPane(height) {
+        const wrapper = DomUtils.el('div', { class: 'ac-pane ac-pane-timeaxis', dataset: { paneId: 'timeaxis' } });
+        const canvasContainer = DomUtils.el('div', { class: 'ac-pane-canvas-container' });
+        wrapper.appendChild(canvasContainer);
+        this.container.appendChild(wrapper);
+        const canvas = new Canvas(canvasContainer, { alpha: false });
+        const pane = {
+            id: 'timeaxis', title: 'Time', height, isMain: false, isTimeAxis: true,
+            wrapper, canvasContainer, canvas,
+            indicators: [], visible: true
+        };
+        canvas.onResize = (w, h) => { pane.width = w; pane.innerHeight = h; };
+        return pane;
     }
 
     _createPane(id, title, height, isMain = false) {
@@ -72,7 +89,15 @@ export class PaneManager {
         if (existing) return existing;
         const pane = this._createPane(id, title, height, false);
         this.panes.push(pane);
-        // Insert resize handle before this pane
+        // FIX: Move the newly-created pane wrapper to sit BEFORE the time axis
+        // pane so the time axis strip always remains at the very bottom of the
+        // chart (below all indicator panes). _createPane appends to the end of
+        // the container, which would otherwise place it after the time axis.
+        if (this.timeAxisPane && this.timeAxisPane.wrapper.parentNode === this.container) {
+            this.container.insertBefore(pane.wrapper, this.timeAxisPane.wrapper);
+        }
+        // Insert resize handle before this pane (now correctly between the
+        // previous pane and this one, before the time axis).
         this._insertResizeHandle(pane);
         this._layout();
         return pane;
@@ -131,20 +156,30 @@ export class PaneManager {
 
     /**
      * Apply heights to DOM. Each pane uses flex-basis for its height.
+     * The time axis pane has a fixed height and is always at the bottom.
      */
     _layout() {
         const totalH = this.container.clientHeight;
         const handleCount = this.panes.length - 1;
         const handleH = 4; // px per handle
-        let usedH = handleCount * handleH;
+        const timeAxisH = this.timeAxisPane ? this.timeAxisPane.height : 0;
+        let usedH = handleCount * handleH + timeAxisH;
         for (const p of this.panes) usedH += p.height;
-        // If overflow, scale down proportionally
+        // If overflow, scale down the resizable panes proportionally (keep time axis fixed)
         if (usedH > totalH) {
-            const scale = (totalH - handleCount * handleH) / (usedH - handleCount * handleH);
+            const available = totalH - handleCount * handleH - timeAxisH;
+            let paneH = 0;
+            for (const p of this.panes) paneH += p.height;
+            const scale = available / paneH;
             for (const p of this.panes) p.height *= scale;
         }
         for (const p of this.panes) {
             p.wrapper.style.flexBasis = p.height + 'px';
+            p.wrapper.style.flexGrow = p.isMain ? '1' : '0';
+        }
+        if (this.timeAxisPane) {
+            this.timeAxisPane.wrapper.style.flexBasis = timeAxisH + 'px';
+            this.timeAxisPane.wrapper.style.flexGrow = '0';
         }
     }
 
