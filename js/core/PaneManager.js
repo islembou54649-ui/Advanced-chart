@@ -1,18 +1,18 @@
 /**
  * PaneManager.js
- * Manages a stack of panes: one main price pane (always at top) and any number of
- * indicator panes below. Each pane has a draggable resize handle between it and the
- * next pane, so the user can drag to resize.
+ * Manages a stack of panes rendered on ONE shared canvas.
  *
- * Each pane has:
- *  - id
- *  - height (in CSS pixels)
- *  - minHeight
- *  - canvas (its own drawing surface)
- *  - list of indicators rendered into it
+ * Architecture (v0.4):
+ * - ONE canvas fills the entire paneContainer. All drawing happens on it.
+ * - Pane DOM wrappers exist only for layout (heights) and resize handles.
+ * - Non-main panes have NO canvas — they're transparent divs that define regions.
+ * - Resize handles are on top of the canvas (z-index: 2) and capture pointer events.
+ * - The canvas captures pointer events for pan/draw/crosshair.
  *
- * The main price pane contains the candle series + overlay indicators.
- * Indicator panes (e.g. RSI, MACD) live below and have their own Y-scale.
+ * This makes the chart look like ONE connected surface:
+ * - Crosshair vertical line extends across all regions.
+ * - Current-price line extends across all regions.
+ * - Divider lines between regions are drawn on the same canvas (connected, not broken).
  */
 import { Canvas } from '../core/Canvas.js';
 import { DomUtils } from '../utils/DomUtils.js';
@@ -21,83 +21,69 @@ export class PaneManager {
     constructor(container, engine) {
         this.container = container;
         this.engine = engine;
-        this.panes = [];        // array of pane objects
+        this.panes = [];
+        this.timeAxisHeight = 28;
+        this.handleHeight = 4;
         this._resizeObserver = new ResizeObserver(() => this._layout());
         this._resizeObserver.observe(container);
     }
 
     /**
-     * Initialize with a single main pane + a dedicated time axis strip at the bottom.
+     * Initialize: create the single shared canvas + main pane + time axis strip.
      */
     init(initialHeight) {
         this.panes = [];
-        const main = this._createPane('main', 'Price', initialHeight, true);
+        // Create the ONE shared canvas that fills the entire paneContainer.
+        this.canvasContainer = DomUtils.el('div', { class: 'ac-shared-canvas-container' });
+        this.container.appendChild(this.canvasContainer);
+        this.canvas = new Canvas(this.canvasContainer, { alpha: false });
+
+        // Create the main pane wrapper (for layout — no canvas inside)
+        const main = this._createPaneWrapper('main', 'Price', initialHeight, true);
         this.panes.push(main);
-        // Create the time axis strip (always at the very bottom, fixed height)
-        this.timeAxisPane = this._createTimeAxisPane(28);
+
+        // Create the time axis pane wrapper (at the bottom, fixed height)
+        this.timeAxisPane = this._createTimeAxisWrapper(this.timeAxisHeight);
+
         this._layout();
         return main;
     }
 
-    _createTimeAxisPane(height) {
-        const wrapper = DomUtils.el('div', { class: 'ac-pane ac-pane-timeaxis', dataset: { paneId: 'timeaxis' } });
-        const canvasContainer = DomUtils.el('div', { class: 'ac-pane-canvas-container' });
-        wrapper.appendChild(canvasContainer);
-        this.container.appendChild(wrapper);
-        const canvas = new Canvas(canvasContainer, { alpha: false });
-        const pane = {
-            id: 'timeaxis', title: 'Time', height, isMain: false, isTimeAxis: true,
-            wrapper, canvasContainer, canvas,
-            indicators: [], visible: true
-        };
-        canvas.onResize = (w, h) => { pane.width = w; pane.innerHeight = h; };
-        return pane;
-    }
-
-    _createPane(id, title, height, isMain = false) {
+    _createPaneWrapper(id, title, height, isMain = false) {
         const wrapper = DomUtils.el('div', { class: 'ac-pane' + (isMain ? ' ac-pane-main' : ''), dataset: { paneId: id } });
-        const header = DomUtils.el('div', { class: 'ac-pane-header' }, [
-            DomUtils.el('span', { class: 'ac-pane-title' }, title),
-            DomUtils.el('div', { class: 'ac-pane-actions' })
-        ]);
-        const canvasContainer = DomUtils.el('div', { class: 'ac-pane-canvas-container' });
-        wrapper.appendChild(header);
-        wrapper.appendChild(canvasContainer);
         this.container.appendChild(wrapper);
-        const canvas = new Canvas(canvasContainer, { alpha: false });
-        const pane = {
+        return {
             id, title, height, isMain,
-            wrapper, header, canvasContainer, canvas,
+            wrapper,
             indicators: [],
             priceRange: { min: 0, max: 1 },
             autoScale: true,
             visible: true
         };
-        canvas.onResize = (w, h) => {
-            pane.width = w;
-            pane.innerHeight = h;
+    }
+
+    _createTimeAxisWrapper(height) {
+        const wrapper = DomUtils.el('div', { class: 'ac-pane ac-pane-timeaxis', dataset: { paneId: 'timeaxis' } });
+        this.container.appendChild(wrapper);
+        return {
+            id: 'timeaxis', title: 'Time', height, isMain: false, isTimeAxis: true,
+            wrapper, indicators: [], visible: true
         };
-        return pane;
     }
 
     /**
-     * Add a new indicator pane below the existing ones.
+     * Add a new indicator pane below the existing ones (above the time axis).
      */
     addPane(id, title, height = 120) {
-        // Check if exists
         const existing = this.panes.find(p => p.id === id);
         if (existing) return existing;
-        const pane = this._createPane(id, title, height, false);
+        const pane = this._createPaneWrapper(id, title, height, false);
         this.panes.push(pane);
-        // FIX: Move the newly-created pane wrapper to sit BEFORE the time axis
-        // pane so the time axis strip always remains at the very bottom of the
-        // chart (below all indicator panes). _createPane appends to the end of
-        // the container, which would otherwise place it after the time axis.
+        // Move wrapper BEFORE the time axis so time axis stays at the bottom
         if (this.timeAxisPane && this.timeAxisPane.wrapper.parentNode === this.container) {
             this.container.insertBefore(pane.wrapper, this.timeAxisPane.wrapper);
         }
-        // Insert resize handle before this pane (now correctly between the
-        // previous pane and this one, before the time axis).
+        // Insert resize handle before this pane
         this._insertResizeHandle(pane);
         this._layout();
         return pane;
@@ -114,6 +100,7 @@ export class PaneManager {
             pane.height = newH;
             if (prevPane) prevPane.height = newPrevH;
             this._layout();
+            if (this.engine) this.engine.requestRender();
         };
         const onUp = () => {
             document.removeEventListener('pointermove', onMove);
@@ -123,6 +110,7 @@ export class PaneManager {
         };
         handle.addEventListener('pointerdown', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             startY = e.clientY;
             startH = pane.height;
             const idx = this.panes.indexOf(pane);
@@ -137,13 +125,11 @@ export class PaneManager {
 
     removePane(id) {
         const idx = this.panes.findIndex(p => p.id === id);
-        if (idx <= 0) return; // can't remove main
+        if (idx <= 0) return;
         const pane = this.panes[idx];
-        // Remove preceding resize handle
         const handle = pane.wrapper.previousElementSibling;
         if (handle && handle.classList.contains('ac-pane-resize-handle')) handle.remove();
         pane.wrapper.remove();
-        pane.canvas.destroy();
         this.panes.splice(idx, 1);
         this._layout();
     }
@@ -155,17 +141,15 @@ export class PaneManager {
     get main() { return this.panes[0]; }
 
     /**
-     * Apply heights to DOM. Each pane uses flex-basis for its height.
-     * The time axis pane has a fixed height and is always at the bottom.
+     * Layout: apply heights to DOM wrappers. The shared canvas fills the container.
      */
     _layout() {
         const totalH = this.container.clientHeight;
-        const handleCount = this.panes.length - 1;
-        const handleH = 4; // px per handle
-        const timeAxisH = this.timeAxisPane ? this.timeAxisPane.height : 0;
+        const handleCount = this.panes.length - 1 + 1; // handles between panes + handle before time axis
+        const handleH = this.handleHeight;
+        const timeAxisH = this.timeAxisHeight;
         let usedH = handleCount * handleH + timeAxisH;
         for (const p of this.panes) usedH += p.height;
-        // If overflow, scale down the resizable panes proportionally (keep time axis fixed)
         if (usedH > totalH) {
             const available = totalH - handleCount * handleH - timeAxisH;
             let paneH = 0;
@@ -184,19 +168,46 @@ export class PaneManager {
     }
 
     /**
-     * Get the pane under a Y coordinate (relative to the container).
+     * Compute region rectangles for all panes based on current DOM layout.
+     * Returns array of { id, pane, rect: {x, y, w, h} } in canvas CSS pixels.
+     * The regions are ordered top-to-bottom: main, [indicator panes...], timeaxis.
      */
-    paneAtY(y) {
-        let acc = 0;
-        for (const p of this.panes) {
-            acc += p.height + 4;
-            if (y <= acc) return p;
+    getRegions() {
+        const containerRect = this.container.getBoundingClientRect();
+        const regions = [];
+        const w = containerRect.width;
+        let y = 0;
+        for (let i = 0; i < this.panes.length; i++) {
+            const pane = this.panes[i];
+            const rect = pane.wrapper.getBoundingClientRect();
+            const h = rect.height;
+            regions.push({ id: pane.id, pane, rect: { x: 0, y, w, h } });
+            y += h;
+            // Add resize handle gap (except after last pane — the time axis follows)
+            if (i < this.panes.length - 1) y += this.handleHeight;
+            else y += this.handleHeight; // handle before time axis
         }
-        return this.panes[this.panes.length - 1];
+        // Time axis region
+        if (this.timeAxisPane) {
+            const rect = this.timeAxisPane.wrapper.getBoundingClientRect();
+            regions.push({ id: 'timeaxis', pane: this.timeAxisPane, rect: { x: 0, y, w, h: rect.height } });
+        }
+        return regions;
+    }
+
+    /**
+     * Get the region at a given Y coordinate.
+     */
+    regionAtY(y) {
+        const regions = this.getRegions();
+        for (const r of regions) {
+            if (y >= r.rect.y && y < r.rect.y + r.rect.h) return r;
+        }
+        return null;
     }
 
     destroy() {
         this._resizeObserver.disconnect();
-        for (const p of this.panes) p.canvas.destroy();
+        if (this.canvas) this.canvas.destroy();
     }
 }
