@@ -50,6 +50,11 @@ export class DrawingManager {
         this._buckets = new Map();
         this._viewport = null;
         this.onSelectionChange = null;
+        // Drag state — handle index determined at pointer-down
+        this._dragTarget = null;
+        this._dragHandleIdx = -1;
+        this._dragStartX = 0;
+        this._dragStartY = 0;
 
         this._toolFactories = {
             // Trend & lines
@@ -272,19 +277,43 @@ export class DrawingManager {
     }
 
     /**
-     * Drag the selected drawing (whole or single anchor) by (dx, dy).
+     * Called by EventManager when a pointer-down lands on a drawing.
+     * Determines whether we grabbed a handle (single anchor) or the body (whole drawing).
+     * The result is stored so dragDrawing doesn't need to re-check on every move.
+     */
+    startDrag(drawing, x, y) {
+        this._dragTarget = drawing;
+        // Check if we grabbed a specific handle — determined ONCE at pointer-down
+        const handleIdx = drawing.hitTestHandle(x, y, this._viewport);
+        this._dragHandleIdx = handleIdx;
+        this._dragStartX = x;
+        this._dragStartY = y;
+    }
+
+    /**
+     * Drag the selected drawing. Uses the handle index determined at pointer-down
+     * so only the grabbed anchor moves — the other anchors stay fixed.
      */
     dragDrawing(drawing, x, y, dx, dy) {
         if (drawing.locked) return;
-        // Check if we're dragging a specific handle
-        const handleIdx = drawing.hitTestHandle(this.downX || x, this.downY || y, this._viewport);
-        if (handleIdx >= 0) {
-            drawing.setAnchor(handleIdx, x, y, this._viewport);
+        // FIX: use the handle index determined at pointer-down (startDrag).
+        // Previously this re-checked hitTestHandle on every move using the current
+        // cursor position, which caused the wrong anchor to be moved after the
+        // first move (the handle had shifted, so hitTestHandle returned -1 or a
+        // different handle). This made both points move together when dragging.
+        if (this._dragHandleIdx >= 0) {
+            // Move only the grabbed anchor — all other anchors stay fixed
+            drawing.setAnchor(this._dragHandleIdx, x, y, this._viewport);
         } else {
-            // Move whole drawing
+            // Move whole drawing (translate all anchors)
             drawing.translateBy(dx, dy, this._viewport);
         }
         this._reindexDrawing(drawing);
+    }
+
+    endDrag() {
+        this._dragTarget = null;
+        this._dragHandleIdx = -1;
     }
 
     _nextColor() {

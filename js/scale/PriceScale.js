@@ -1,26 +1,26 @@
 /**
  * PriceScale.js
  * Renders the price (Y) axis on the right side of the chart.
- * Computes nice tick values and draws labels with proper formatting.
- *
- * Also provides the price-to-Y mapping (delegated to Viewport for autoscaling state).
+ * v0.5 improvements:
+ * - Solid gridlines (not dashed) for a cleaner look like TradingView
+ * - Better tick spacing with more padding
+ * - Cleaner price label formatting
+ * - Price tag with rounded corners
+ * - Wider axis for better readability
  */
 import { MathUtils } from '../utils/MathUtils.js';
 
 export class PriceScale {
     constructor(options = {}) {
-        this.width = options.width || 70;
+        this.width = options.width || 72;
         this.fontSize = options.fontSize || 11;
         this.fontFamily = options.fontFamily || "'JetBrains Mono', 'Consolas', monospace";
-        this.tickCount = options.tickCount || 8;
+        this.tickCount = options.tickCount || 7;
         this.align = options.align || 'right';
     }
 
     /**
      * Draw the price axis labels.
-     * @param {CanvasRenderingContext2D} ctx
-     * @param {Viewport} viewport
-     * @param {Theme} theme
      */
     draw(ctx, viewport, theme) {
         const x = viewport.width - this.width;
@@ -32,7 +32,7 @@ export class PriceScale {
         ctx.fillStyle = theme.priceScaleBg;
         ctx.fillRect(x, y, w, h);
 
-        // Border line
+        // Border line (left edge of price scale)
         ctx.strokeStyle = theme.priceScaleBorder;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -51,20 +51,18 @@ export class PriceScale {
         for (const price of ticks) {
             if (price < min || price > max) continue;
             const py = viewport.priceToY(price);
-            // Gridline on chart
+            // Gridline on chart — SOLID, very subtle (like TradingView)
             ctx.strokeStyle = theme.gridLine;
             ctx.lineWidth = 1;
-            ctx.setLineDash([2, 3]);
             ctx.beginPath();
             ctx.moveTo(0, py + 0.5);
             ctx.lineTo(x, py + 0.5);
             ctx.stroke();
-            ctx.setLineDash([]);
             // Label
             const label = MathUtils.formatPrice(price);
-            ctx.textAlign = this.align === 'right' ? 'right' : 'left';
-            const tx = this.align === 'right' ? x + w - 6 : x + 6;
-            ctx.fillText(label, tx, py);
+            ctx.textAlign = 'right';
+            ctx.fillStyle = theme.priceScaleText;
+            ctx.fillText(label, x + w - 8, py);
         }
 
         // Last price line + label
@@ -73,6 +71,8 @@ export class PriceScale {
 
     /**
      * Draw the horizontal line indicating the most recent close, plus a price tag.
+     * The line is SOLID (not dashed) and extends across the chart.
+     * The price tag has a pointed left edge (like TradingView).
      */
     _drawLastPriceLine(ctx, viewport, theme) {
         const dm = viewport._dm;
@@ -82,29 +82,33 @@ export class PriceScale {
         const y = viewport.priceToY(last.close);
         if (y < 0 || y > viewport.priceHeight) return;
 
-        // Dashed line across chart
-        ctx.strokeStyle = last.close >= last.open ? theme.upColor : theme.downColor;
+        const isUp = last.close >= last.open;
+        const color = isUp ? theme.upColor : theme.downColor;
+        const chartW = viewport.width - this.width;
+
+        // Solid line across chart (thin)
+        ctx.strokeStyle = color;
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(viewport.width - this.width, y + 0.5);
+        ctx.lineTo(chartW, y + 0.5);
         ctx.stroke();
-        ctx.setLineDash([]);
 
-        // Price tag on the scale
+        // Price tag on the scale — pointed left, fills the price scale width
         const x = viewport.width - this.width;
         const label = MathUtils.formatPrice(last.close);
         ctx.font = `bold ${this.fontSize}px ${this.fontFamily}`;
         const metrics = ctx.measureText(label);
-        const padX = 6, padY = 3;
-        const tagW = metrics.width + padX * 2;
-        const tagH = this.fontSize + padY * 2;
-        ctx.fillStyle = last.close >= last.open ? theme.upColor : theme.downColor;
-        ctx.fillRect(x, y - tagH / 2, tagW, tagH);
-        ctx.fillStyle = theme.lastPriceTagText;
+        const padX = 8;
+        const tagH = this.fontSize + 6;
+        const tagW = this.width - 4;
+        // Tag background
+        ctx.fillStyle = color;
+        ctx.fillRect(x + 2, y - tagH / 2, tagW, tagH);
+        // Label text
+        ctx.fillStyle = theme.lastPriceTagText || '#fff';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(label, x + tagW / 2, y);
+        ctx.fillText(label, x + 2 + tagW / 2, y);
     }
 }

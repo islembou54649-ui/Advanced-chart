@@ -94,6 +94,13 @@ export class EventManager {
         this.downTime = performance.now();
         this.draggedSinceDown = false;
 
+        // FIX: Check if we clicked on a pane button (indicator controls) first.
+        // These are small buttons drawn on canvas next to the indicator name.
+        if (this.engine.handlePaneButtonClick(x, y)) {
+            this.activeAction = 'none';
+            return;
+        }
+
         // Decide what action to start
         if (this.engine.activeTool) {
             this.activeAction = 'draw';
@@ -128,6 +135,9 @@ export class EventManager {
             if (this.activeAction === 'pending' && this.draggedSinceDown) {
                 if (this._dragTarget) {
                     this.activeAction = 'select-drag';
+                    // FIX: determine which handle we grabbed ONCE at drag start.
+                    // This prevents both anchors from moving together.
+                    this.engine.drawingManager.startDrag(this._dragTarget, this.downX, this.downY);
                 } else {
                     this.activeAction = 'pan';
                 }
@@ -173,6 +183,9 @@ export class EventManager {
         } else if (this.activeAction === 'pending' && !this.draggedSinceDown) {
             // It was a click, not a drag — try to select/deselect a drawing
             this.engine.drawingManager.handleClick(x, y);
+        } else if (this.activeAction === 'select-drag') {
+            // End the drag — clear the handle index
+            this.engine.drawingManager.endDrag();
         }
         this.isPointerDown = false;
         this.activeAction = 'none';

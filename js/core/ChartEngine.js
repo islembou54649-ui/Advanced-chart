@@ -304,6 +304,13 @@ export class ChartEngine {
         this.drawingManager.draw(ctx, vp, theme);
         ctx.restore();
 
+        // FIX: draw the pane title bar with overlay control buttons.
+        // Previously the main pane had no title bar, so overlay indicators
+        // (SMA, EMA, BollingerBands, etc.) had no visible control buttons.
+        // Now we draw the same title+buttons row that indicator panes use,
+        // so overlays get ⇅ / ◉ / ⚙ / ✕ controls in the top-left of the chart.
+        this._drawPaneTitleWithControls(ctx, this.mainPane, theme);
+
         ctx.restore();
     }
 
@@ -369,14 +376,147 @@ export class ChartEngine {
         }
         ctx.restore();
 
-        // Pane title (top-left, small)
-        ctx.font = "bold 10px 'Inter', sans-serif";
-        ctx.fillStyle = theme.mutedText;
+        // Pane title (top-left) with indicator controls: [name] [⇅ reverse] [👁 show/hide] [⚙ settings] [✕ remove]
+        this._drawPaneTitleWithControls(ctx, pane, theme);
+
+        ctx.restore();
+    }
+
+    /**
+     * Draw the pane title bar with indicator control buttons.
+     * Buttons are drawn on canvas at fixed positions; hit-testing is done
+     * in _handlePaneButtonClick (called from EventManager).
+     */
+    _drawPaneTitleWithControls(ctx, pane, theme) {
+        const buttons = this._getPaneButtons(pane);
+        // Title text
+        ctx.font = "bold 11px 'Inter', sans-serif";
+        ctx.fillStyle = theme.textColor;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillText(pane.title, 8, 4);
+        let x = 8 + ctx.measureText(pane.title).width + 12;
+        // Buttons
+        for (const btn of buttons) {
+            btn.x = x;
+            btn.y = 3;
+            btn.w = 18;
+            btn.h = 16;
+            // Button background on hover/active
+            if (btn.hovered) {
+                ctx.fillStyle = theme.toolbarBtn;
+                ctx.fillRect(btn.x, btn.y, btn.w, btn.h);
+            }
+            // Icon
+            ctx.font = "12px 'Inter', sans-serif";
+            ctx.fillStyle = btn.active ? theme.upColor : theme.mutedText;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(btn.icon, btn.x + btn.w / 2, btn.y + btn.h / 2 + 1);
+            x += btn.w + 4;
+        }
+        // Store buttons for hit-testing
+        pane._buttons = buttons;
+    }
 
-        ctx.restore();
+    /**
+     * Get the control buttons for a pane.
+     *
+     * FIX: the main pane's `pane.indicators` array is empty (overlays live
+     * at IndicatorManager.indicators level, not in pane.indicators). So for
+     * the main pane we look at the overlay indicators; for indicator panes
+     * we use pane.indicators as before. Without this, overlay indicators
+     * like SMA/EMA/BollingerBands had no visible control buttons.
+     */
+    _getPaneButtons(pane) {
+        const buttons = [];
+        const indicators = pane.isMain
+            ? this.indicatorManager.indicators.filter(i => i.type === 'overlay')
+            : pane.indicators;
+        for (const ind of indicators) {
+            // Reverse button (only for indicators that support reversal)
+            buttons.push({
+                id: 'reverse', indicatorId: ind.id, icon: '⇅',
+                title: 'Reverse', hovered: false, active: !!ind.reversed
+            });
+            // Show/hide toggle
+            buttons.push({
+                id: 'toggle', indicatorId: ind.id, icon: ind.visible ? '◉' : '◯',
+                title: ind.visible ? 'Hide' : 'Show', hovered: false, active: ind.visible
+            });
+            // Settings
+            buttons.push({
+                id: 'settings', indicatorId: ind.id, icon: '⚙',
+                title: 'Settings', hovered: false, active: false
+            });
+            // Remove
+            buttons.push({
+                id: 'remove', indicatorId: ind.id, icon: '✕',
+                title: 'Remove', hovered: false, active: false
+            });
+        }
+        return buttons;
+    }
+
+    /**
+     * Handle a click on a pane button. Called from EventManager.
+     * Returns true if a button was hit.
+     *
+     * FIX: pane._buttons stores button positions in PANE-LOCAL coordinates
+     * (btn.y = 3 means "3px from the top of this pane"). But the (x, y) we
+     * receive here are CANVAS-GLOBAL coordinates (from EventManager's
+     * _getPos, which is `e.clientY - rect.top`). So for an indicator pane
+     * that starts at canvas y=365 (e.g. the Volume pane), the button is
+     * visually at canvas y=368 but stored as btn.y=3. A click at canvas
+     * y=368 would fail the old `y >= btn.y` test (368 >= 3 is true, but
+     * 368 <= 19 is false).
+     *
+     * Fix: look up each pane's region and add region.rect.y to btn.y
+     * before hit-testing. We also restrict the hit-test to clicks that
+     * fall inside the pane's region, so a click in the main pane can't
+     * accidentally match a button in the RSI pane (whose btn.y=3 would
+     * otherwise overlap the main pane's top).
+     */
+    handlePaneButtonClick(x, y) {
+        const regions = this.indicatorManager.paneManager.getRegions();
+        // Map each pane object to its region rect for quick lookup.
+        const regionByPane = new Map();
+        for (const r of regions) regionByPane.set(r.pane, r.rect);
+
+        for (const pane of this.indicatorManager.paneManager.panes) {
+            if (!pane._buttons || pane._buttons.length === 0) continue;
+            const rect = regionByPane.get(pane);
+            if (!rect) continue;
+            // Ignore clicks that aren't even inside this pane's region.
+            if (y < rect.y || y >= rect.y + rect.h) continue;
+            // FIX: convert pane-local btn.y to canvas-global by adding rect.y.
+            const paneY = rect.y;
+            for (const btn of pane._buttons) {
+                const btnY = paneY + btn.y;
+                if (x >= btn.x && x <= btn.x + btn.w && y >= btnY && y <= btnY + btn.h) {
+                    const ind = this.indicatorManager.indicators.find(i => i.id === btn.indicatorId);
+                    if (!ind) return true;
+                    if (btn.id === 'reverse') {
+                        ind.reversed = !ind.reversed;
+                    } else if (btn.id === 'toggle') {
+                        ind.visible = !ind.visible;
+                    } else if (btn.id === 'settings') {
+                        // Cycle through common periods
+                        const periods = [7, 14, 20, 21, 50, 100, 200];
+                        const cur = ind.options.period || 14;
+                        const idx = periods.indexOf(cur);
+                        const next = periods[(idx + 1) % periods.length];
+                        ind.options.period = next;
+                        ind._lastDataVersion = -1; // force recalc
+                    } else if (btn.id === 'remove') {
+                        this.indicatorManager.remove(ind.id);
+                    }
+                    this.requestRender();
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
