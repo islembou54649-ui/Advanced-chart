@@ -2,52 +2,87 @@
  * DrawingManager.js
  * Central manager for all drawing objects on the chart.
  *
- * Performance design for thousands of drawings:
- * 1. Culling: only drawings whose anchors fall within the visible range are rendered.
- * 2. Spatial bucketing: drawings are bucketed by bar-index range for fast hit-testing.
- * 3. Batched rendering: all drawings render in a single canvas pass sorted by zIndex.
- * 4. Dirty flag: avoid re-rendering when nothing changed.
+ * Features:
+ * - Spatial bucketing for fast hit-testing (supports thousands of drawings)
+ * - Visible-range culling (only on-screen drawings render)
+ * - Selection, hover, and drag-to-move (whole drawing or single anchor)
+ * - Settings card popup when a drawing is selected
+ * - Serialization (toJSON / fromJSON) for save/load
  *
- * Drawing tool flow:
- * - setActiveTool('trendline') → next click starts a new trendline
- * - while drawing: pointer down/move/up build the drawing
- * - on completion: tool stays active (multi-draw) unless "one-shot" mode is set
- *
- * Selection / editing:
- * - Click on a completed drawing selects it (when no tool is active)
- * - Drag handles to move anchors (TODO in v2)
- * - Delete key removes the selected drawing
+ * Tool flow:
+ * - setActiveTool('trendline') → click on chart starts a new drawing
+ * - While drawing: pointer events build anchors
+ * - On completion: tool stays active for multi-draw (Esc or right-click to exit)
  */
+import { DrawingBase } from './DrawingBase.js';
 import { TrendLine } from './TrendLine.js';
 import { HorizontalLine } from './HorizontalLine.js';
+import { VerticalLine } from './VerticalLine.js';
 import { Rectangle } from './Rectangle.js';
+import { Ellipse } from './Ellipse.js';
+import { Triangle } from './Triangle.js';
 import { Fibonacci } from './Fibonacci.js';
+import { FibExtension } from './FibExtension.js';
+import { FibChannel } from './FibChannel.js';
 import { TextDrawing } from './TextDrawing.js';
+import { Arrow } from './Arrow.js';
+import { RayLine } from './RayLine.js';
+import { ParallelChannel } from './ParallelChannel.js';
+import { LongPosition } from './LongPosition.js';
+import { ShortPosition } from './ShortPosition.js';
+import { Brush } from './Brush.js';
+import { Polyline } from './Polyline.js';
+import { Measurement } from './Measurement.js';
+import { PriceLabel } from './PriceLabel.js';
+import { DateRange } from './DateRange.js';
+import { Pitchfork } from './Pitchfork.js';
+import { GannBox } from './GannBox.js';
 
 export class DrawingManager {
     constructor() {
         this.drawings = [];
         this._drawingById = new Map();
-        this.activeTool = null;     // 'trendline' | 'hline' | 'rectangle' | 'fib' | 'text' | null
-        this._currentDrawing = null;  // drawing being created right now
+        this.activeTool = null;
+        this._currentDrawing = null;
         this.selectedId = null;
         this.hoveredId = null;
-        this._bucketSize = 100;     // bar-index bucket size for spatial hashing
-        this._buckets = new Map();  // bucketKey -> Set<drawingId>
+        this._bucketSize = 100;
+        this._buckets = new Map();
+        this._viewport = null;
+        this.onSelectionChange = null;
 
-        // Register drawing constructors
         this._toolFactories = {
+            // Trend & lines
             trendline: (opts) => new TrendLine(opts),
+            ray: (opts) => new RayLine(opts),
             hline: (opts) => new HorizontalLine(opts),
+            vline: (opts) => new VerticalLine(opts),
+            arrow: (opts) => new Arrow(opts),
+            brush: (opts) => new Brush(opts),
+            polyline: (opts) => new Polyline(opts),
+            // Shapes
             rectangle: (opts) => new Rectangle(opts),
+            ellipse: (opts) => new Ellipse(opts),
+            triangle: (opts) => new Triangle(opts),
+            // Fibonacci
             fib: (opts) => new Fibonacci(opts),
-            text: (opts) => new TextDrawing(opts)
+            fibext: (opts) => new FibExtension(opts),
+            fibchannel: (opts) => new FibChannel(opts),
+            // Patterns
+            channel: (opts) => new ParallelChannel(opts),
+            pitchfork: (opts) => new Pitchfork(opts),
+            gannbox: (opts) => new GannBox(opts),
+            // Positions
+            longpos: (opts) => new LongPosition(opts),
+            shortpos: (opts) => new ShortPosition(opts),
+            // Annotations
+            text: (opts) => new TextDrawing(opts),
+            pricelabel: (opts) => new PriceLabel(opts),
+            daterange: (opts) => new DateRange(opts),
+            measurement: (opts) => new Measurement(opts)
         };
     }
 
-    /**
-     * Set the active drawing tool. Pass null to exit drawing mode.
-     */
     setActiveTool(tool) {
         if (tool && !this._toolFactories[tool]) {
             console.warn('Unknown drawing tool:', tool);
@@ -55,14 +90,10 @@ export class DrawingManager {
         }
         this.activeTool = tool;
         if (!tool && this._currentDrawing) {
-            // Cancel in-progress drawing
             this._currentDrawing = null;
         }
     }
 
-    /**
-     * Add an existing drawing (e.g. loaded from storage).
-     */
     add(drawing) {
         this.drawings.push(drawing);
         this._drawingById.set(drawing.id, drawing);
@@ -70,9 +101,6 @@ export class DrawingManager {
         return drawing;
     }
 
-    /**
-     * Remove a drawing by id.
-     */
     remove(id) {
         const d = this._drawingById.get(id);
         if (!d) return;
@@ -80,12 +108,12 @@ export class DrawingManager {
         if (idx >= 0) this.drawings.splice(idx, 1);
         this._drawingById.delete(id);
         this._unindexDrawing(d);
-        if (this.selectedId === id) this.selectedId = null;
+        if (this.selectedId === id) {
+            this.selectedId = null;
+            if (this.onSelectionChange) this.onSelectionChange(null);
+        }
     }
 
-    /**
-     * Remove all drawings.
-     */
     clear() {
         this.drawings = [];
         this._drawingById.clear();
@@ -93,29 +121,53 @@ export class DrawingManager {
         this.selectedId = null;
         this.hoveredId = null;
         this._currentDrawing = null;
+        if (this.onSelectionChange) this.onSelectionChange(null);
     }
 
-    /**
-     * Spatial index for fast hit testing by bar index.
-     */
     _indexDrawing(d) {
+        // FIX: previously we only indexed the bucket that each anchor falls into.
+        // That broke hit-testing for drawings whose anchors span many buckets
+        // (e.g. a Trend Line drawn across the whole visible range). Clicking on
+        // the middle of such a line returned no candidates and the click was
+        // treated as "empty space" instead of selecting the drawing.
+        // Fix: index every bucket between the min and max anchor index.
+        if (d.anchors.length === 0) return;
+        let minKey = Infinity, maxKey = -Infinity;
         for (const a of d.anchors) {
             const key = Math.floor(a.index / this._bucketSize);
-            if (!this._buckets.has(key)) this._buckets.set(key, new Set());
-            this._buckets.get(key).add(d.id);
+            if (key < minKey) minKey = key;
+            if (key > maxKey) maxKey = key;
+        }
+        // Cap to a sane upper bound so a wildly-spanning drawing doesn't blow up
+        // the bucket map (e.g. an infinite ray). 200 buckets = 20_000 bars max.
+        const SPAN_CAP = 200;
+        if (maxKey - minKey > SPAN_CAP) maxKey = minKey + SPAN_CAP;
+        for (let k = minKey; k <= maxKey; k++) {
+            if (!this._buckets.has(k)) this._buckets.set(k, new Set());
+            this._buckets.get(k).add(d.id);
         }
     }
     _unindexDrawing(d) {
+        // Same span-based removal — must mirror _indexDrawing exactly.
+        if (d.anchors.length === 0) return;
+        let minKey = Infinity, maxKey = -Infinity;
         for (const a of d.anchors) {
             const key = Math.floor(a.index / this._bucketSize);
-            const set = this._buckets.get(key);
+            if (key < minKey) minKey = key;
+            if (key > maxKey) maxKey = key;
+        }
+        const SPAN_CAP = 200;
+        if (maxKey - minKey > SPAN_CAP) maxKey = minKey + SPAN_CAP;
+        for (let k = minKey; k <= maxKey; k++) {
+            const set = this._buckets.get(k);
             if (set) set.delete(d.id);
         }
     }
+    _reindexDrawing(d) {
+        this._unindexDrawing(d);
+        this._indexDrawing(d);
+    }
 
-    /**
-     * Get candidate drawings near a given bar index (for hit testing).
-     */
     _candidatesForIndex(index) {
         const key = Math.floor(index / this._bucketSize);
         const ids = new Set();
@@ -126,18 +178,12 @@ export class DrawingManager {
         return [...ids].map(id => this._drawingById.get(id)).filter(Boolean);
     }
 
-    // ---- Pointer event handlers (called by EventManager) ----
+    // ---- Public pointer handlers ----
     onPointerDown(x, y, tool) {
         if (tool && this._toolFactories[tool]) {
-            // Reuse an in-progress drawing if one exists (supports multi-click tools
-            // like the trend line, where the 2nd click finalizes the 2nd anchor).
-            // Previously a brand-new drawing was created on every pointerdown, which
-            // discarded the in-progress one and made the documented "click twice to
-            // draw a line" flow impossible (only a drag would complete).
             if (!this._currentDrawing) {
                 this._currentDrawing = this._toolFactories[tool]({ color: this._nextColor() });
             }
-            // Use the engine's viewport via a property set by ChartEngine
             this._currentDrawing.onPointerDown(x, y, this._viewport);
         }
     }
@@ -145,9 +191,6 @@ export class DrawingManager {
     onPointerMove(x, y) {
         if (this._currentDrawing) {
             this._currentDrawing.onPointerMove(x, y, this._viewport);
-        } else if (!this.activeTool) {
-            // Hover detection for selection feedback
-            this._updateHover(x, y);
         }
     }
 
@@ -163,11 +206,7 @@ export class DrawingManager {
             if (this._currentDrawing.isComplete) {
                 this.add(this._currentDrawing);
                 this._currentDrawing = null;
-                // Stay in tool mode for multiple drawings
             }
-        } else if (!this.activeTool) {
-            // Try to select a drawing
-            this._updateSelection(x, y);
         }
     }
 
@@ -176,78 +215,119 @@ export class DrawingManager {
         this.activeTool = null;
     }
 
-    _updateHover(x, y) {
+    /**
+     * Hit-test all drawings (top-most first) and return the first match.
+     */
+    hitTestTopMost(x, y) {
         const idx = this._viewport.xToIndex(x);
         const candidates = this._candidatesForIndex(idx);
-        let found = null;
+        // Sort by zIndex descending so top-most is first
+        candidates.sort((a, b) => b.zIndex - a.zIndex);
         for (const d of candidates) {
-            if (d.hitTest(x, y, this._viewport)) { found = d; break; }
+            if (!d.visible) continue;
+            if (d.hitTest(x, y, this._viewport)) return d;
+            // Also check handles
+            if (d.hitTestHandle && d.hitTestHandle(x, y, this._viewport) >= 0) return d;
         }
-        const newHover = found ? found.id : null;
-        if (newHover !== this.hoveredId) {
+        return null;
+    }
+
+    /**
+     * Update hover state (called on every pointer-move with no button down).
+     */
+    updateHover(x, y) {
+        const d = this.hitTestTopMost(x, y);
+        const newId = d ? d.id : null;
+        if (newId !== this.hoveredId) {
             if (this.hoveredId) {
                 const old = this._drawingById.get(this.hoveredId);
                 if (old) old.isHovered = false;
             }
-            if (found) found.isHovered = true;
-            this.hoveredId = newHover;
+            if (d) d.isHovered = true;
+            this.hoveredId = newId;
         }
     }
 
-    _updateSelection(x, y) {
-        const idx = this._viewport.xToIndex(x);
-        const candidates = this._candidatesForIndex(idx);
-        let found = null;
-        for (const d of candidates) {
-            if (d.hitTest(x, y, this._viewport)) { found = d; break; }
-        }
+    /**
+     * Handle a click (no drag) — select/deselect.
+     */
+    handleClick(x, y) {
+        const d = this.hitTestTopMost(x, y);
         // Deselect previous
         if (this.selectedId) {
             const prev = this._drawingById.get(this.selectedId);
             if (prev) prev.isSelected = false;
         }
-        if (found) {
-            found.isSelected = true;
-            this.selectedId = found.id;
+        if (d) {
+            d.isSelected = true;
+            this.selectedId = d.id;
         } else {
             this.selectedId = null;
         }
-    }
-
-    _nextColor() {
-        const palette = ['#2962ff', '#f23645', '#089981', '#ff9800', '#9c27b0', '#00bcd4'];
-        return palette[this.drawings.length % palette.length];
+        if (this.onSelectionChange) this.onSelectionChange(this.selectedId ? d : null);
     }
 
     /**
-     * Delete the currently-selected drawing.
+     * Drag the selected drawing (whole or single anchor) by (dx, dy).
      */
+    dragDrawing(drawing, x, y, dx, dy) {
+        if (drawing.locked) return;
+        // Check if we're dragging a specific handle
+        const handleIdx = drawing.hitTestHandle(this.downX || x, this.downY || y, this._viewport);
+        if (handleIdx >= 0) {
+            drawing.setAnchor(handleIdx, x, y, this._viewport);
+        } else {
+            // Move whole drawing
+            drawing.translateBy(dx, dy, this._viewport);
+        }
+        this._reindexDrawing(drawing);
+    }
+
+    _nextColor() {
+        const palette = ['#2962ff', '#f23645', '#089981', '#ff9800', '#9c27b0', '#00bcd4', '#ffeb3b', '#e91e63'];
+        return palette[this.drawings.length % palette.length];
+    }
+
     deleteSelected() {
         if (this.selectedId) this.remove(this.selectedId);
     }
 
-    /**
-     * Render all visible drawings.
-     */
+    getSelected() {
+        return this.selectedId ? this._drawingById.get(this.selectedId) : null;
+    }
+
     draw(ctx, viewport, theme) {
-        // Always render in-progress drawing on top
-        const all = [];
-        // Cull: skip drawings entirely outside the visible range
-        const left = viewport.leftEdge - 50;
-        const right = viewport.rightEdge + 50;
+        const left = viewport.leftEdge - 100;
+        const right = viewport.rightEdge + 100;
+        const visible = [];
         for (const d of this.drawings) {
+            if (!d.visible) continue;
             let inView = false;
             for (const a of d.anchors) {
                 if (a.index >= left && a.index <= right) { inView = true; break; }
             }
-            // HorizontalLine spans all, always render
-            if (d.type === 'hline') inView = true;
-            if (inView) all.push(d);
+            if (d.type === 'hline' || d.type === 'vline' || d.type === 'pricelabel') inView = true;
+            if (inView) visible.push(d);
         }
-        all.sort((a, b) => a.zIndex - b.zIndex);
-        for (const d of all) d.draw(ctx, viewport, theme);
+        visible.sort((a, b) => a.zIndex - b.zIndex);
+        for (const d of visible) d.draw(ctx, viewport, theme);
         if (this._currentDrawing) this._currentDrawing.draw(ctx, viewport, theme);
     }
 
     get count() { return this.drawings.length; }
+
+    toJSON() {
+        return this.drawings.map(d => d.toJSON());
+    }
+
+    fromJSON(data) {
+        this.clear();
+        for (const item of data) {
+            const factory = this._toolFactories[item.type];
+            if (factory) {
+                const d = factory(item);
+                this.add(d);
+            }
+        }
+    }
 }

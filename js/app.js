@@ -34,5 +34,5 @@ window.addEventListener('keydown', (e) => {
 
 // Make available for debugging
 window.chartEngine = engine;
-console.log('%cAdvanced Chart v0.1', 'font-size:14px;font-weight:bold;color:#2962ff');
+console.log('%cAdvanced Chart v0.2', 'font-size:14px;font-weight:bold;color:#2962ff');
 console.log('Engine available at window.chartEngine');

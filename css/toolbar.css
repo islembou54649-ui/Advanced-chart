@@ -3,7 +3,7 @@
 .ac-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     height: var(--ac-toolbar-h);
     padding: 0 8px;
     background: var(--ac-surface);
@@ -13,15 +13,8 @@
     scrollbar-width: thin;
     scrollbar-color: rgba(255,255,255,0.1) transparent;
 }
-
-.ac-toolbar::-webkit-scrollbar {
-    height: 4px;
-}
-
-.ac-toolbar::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
-}
+.ac-toolbar::-webkit-scrollbar { height: 4px; }
+.ac-toolbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
 .ac-toolbar-brand {
     display: flex;
@@ -32,7 +25,6 @@
     margin-right: 4px;
     flex-shrink: 0;
 }
-
 .ac-brand-mark {
     display: inline-flex;
     align-items: center;
@@ -46,7 +38,6 @@
     border-radius: 6px;
     letter-spacing: -0.5px;
 }
-
 .ac-brand-name {
     font-weight: 600;
     font-size: 13px;
@@ -66,12 +57,8 @@
     cursor: pointer;
     flex-shrink: 0;
     outline: none;
-    transition: background 0.15s;
 }
-
-.ac-symbol-select:hover {
-    background: rgba(255, 255, 255, 0.08);
-}
+.ac-symbol-select:hover { background: rgba(255, 255, 255, 0.08); }
 
 .ac-toolbar-group {
     display: flex;
@@ -81,11 +68,7 @@
     border-right: 1px solid var(--ac-border);
     flex-shrink: 0;
 }
-
-.ac-toolbar-group:last-child {
-    border-right: none;
-}
-
+.ac-toolbar-group:last-child { border-right: none; }
 .ac-toolbar-right {
     margin-left: auto;
     border-right: none;
@@ -98,41 +81,32 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 30px;
+    gap: 4px;
+    min-width: 32px;
     height: 30px;
-    padding: 0 8px;
+    padding: 0 10px;
     background: rgba(255, 255, 255, 0.04);
     color: var(--ac-text);
     border: 1px solid transparent;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.12s ease;
     user-select: none;
-    -webkit-user-select: none;
     flex-shrink: 0;
 }
-
 .ac-toolbar-btn:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: var(--ac-border);
 }
-
-.ac-toolbar-btn:active {
-    transform: scale(0.96);
-}
-
+.ac-toolbar-btn:active { transform: scale(0.96); }
 .ac-toolbar-btn.active {
     background: var(--ac-accent);
     color: white;
     border-color: var(--ac-accent);
 }
-
-.ac-toolbar-btn.active:hover {
-    background: #1e4dd6;
-}
-
+.ac-toolbar-btn.active:hover { background: #1e4dd6; }
 .ac-toolbar-btn-sm {
     min-width: 36px;
     font-size: 11px;
@@ -140,72 +114,30 @@
     font-family: var(--ac-mono);
     padding: 0 6px;
 }
-
-.ac-toolbar-btn-toggle {
-    color: var(--ac-muted);
-}
-
+.ac-toolbar-btn-toggle { color: var(--ac-muted); }
 .ac-toolbar-btn-toggle.active {
     background: var(--ac-up);
     color: white;
     border-color: var(--ac-up);
     animation: pulse-live 2s ease-in-out infinite;
 }
-
 @keyframes pulse-live {
     0%, 100% { box-shadow: 0 0 0 0 rgba(8, 153, 129, 0.5); }
     50% { box-shadow: 0 0 0 4px rgba(8, 153, 129, 0); }
 }
 
+.ac-caret { font-size: 9px; opacity: 0.6; }
+
 /* Mobile responsive */
 @media (max-width: 768px) {
-    .ac-toolbar {
-        gap: 4px;
-        padding: 0 4px;
-    }
-
-    .ac-brand-name {
-        display: none;
-    }
-
-    .ac-toolbar-group {
-        padding: 0 4px;
-        gap: 1px;
-    }
-
-    .ac-toolbar-btn {
-        min-width: 28px;
-        height: 28px;
-        padding: 0 6px;
-        font-size: 13px;
-    }
-
-    .ac-toolbar-btn-sm {
-        min-width: 30px;
-        padding: 0 4px;
-        font-size: 10px;
-    }
-
-    .ac-symbol-select {
-        padding: 4px 6px;
-        font-size: 11px;
-    }
+    .ac-toolbar { gap: 4px; padding: 0 4px; }
+    .ac-brand-name { display: none; }
+    .ac-toolbar-group { padding: 0 4px; gap: 1px; }
+    .ac-toolbar-btn { min-width: 28px; height: 28px; padding: 0 6px; font-size: 12px; }
+    .ac-toolbar-btn-sm { min-width: 30px; padding: 0 4px; font-size: 10px; }
+    .ac-symbol-select { padding: 4px 6px; font-size: 11px; }
 }
-
 @media (max-width: 480px) {
-    .ac-toolbar-brand {
-        padding-right: 4px;
-        margin-right: 2px;
-    }
-
-    .ac-brand-mark {
-        width: 24px;
-        height: 24px;
-        font-size: 11px;
-    }
-
-    /* Hide interval text on very small screens - keep only 1m, 1h, 1D */
-    .ac-toolbar-group:nth-child(4) .ac-toolbar-btn-sm:nth-child(n+4):not(:nth-child(4)):not(:nth-child(6)) {
-        display: none;
-    }
+    .ac-toolbar-brand { padding-right: 4px; margin-right: 2px; }
+    .ac-brand-mark { width: 24px; height: 24px; font-size: 11px; }
 }

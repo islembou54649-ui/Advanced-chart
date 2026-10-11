@@ -1,7 +1,5 @@
 /**
  * StatusBar.js
- * Bottom status bar showing cursor coordinates, drawing count, FPS.
- * Helpful for power users and for debugging performance.
  */
 import { DomUtils } from '../utils/DomUtils.js';
 import { MathUtils } from '../utils/MathUtils.js';
@@ -10,48 +8,22 @@ export class StatusBar {
     constructor(container) {
         this.element = DomUtils.el('div', { class: 'ac-statusbar' });
         container.appendChild(this.element);
-        this._content = {
-            left: DomUtils.el('div', { class: 'ac-statusbar-left' }),
-            right: DomUtils.el('div', { class: 'ac-statusbar-right' })
-        };
-        this.element.append(this._content.left, this._content.right);
-        this._cursorPrice = '—';
-        this._cursorIndex = '—';
-        this._drawings = 0;
-        this._bars = 0;
-        this._fps = 0;
+        this._left = DomUtils.el('div', { class: 'ac-statusbar-left' });
+        this._right = DomUtils.el('div', { class: 'ac-statusbar-right' });
+        this.element.append(this._left, this._right);
+        this._state = { bars: 0, drawings: 0, indicators: 0, fps: 0, cursorPrice: '—', cursorIdx: '—' };
     }
-
-    setCursor(price, index) {
-        this._cursorPrice = price != null ? MathUtils.formatPrice(price) : '—';
-        this._cursorIndex = index != null ? '#' + index : '—';
-        this._render();
-    }
-
-    setDrawings(count) {
-        this._drawings = count;
-        this._render();
-    }
-
-    setBars(count) {
-        this._bars = count;
-        this._render();
-    }
-
-    setFps(fps) {
-        this._fps = fps;
-        this._render();
-    }
-
+    setCursor(price, idx) { this._state.cursorPrice = price != null ? MathUtils.formatPrice(price) : '—'; this._state.cursorIdx = idx != null ? '#' + idx : '—'; this._render(); }
+    setDrawings(c) { this._state.drawings = c; this._render(); }
+    setBars(c) { this._state.bars = c; this._render(); }
+    setIndicators(c) { this._state.indicators = c; this._render(); }
+    setFps(f) { this._state.fps = f; this._render(); }
     _render() {
-        this._content.left.innerHTML = `
-            <span>Bars: <b>${this._bars}</b></span>
-            <span>Drawings: <b>${this._drawings}</b></span>
-            <span>Cursor: <b>${this._cursorPrice}</b> @ ${this._cursorIndex}</span>
-        `;
-        this._content.right.innerHTML = `
-            <span>FPS: <b>${this._fps}</b></span>
-            <span>Advanced Chart v0.1</span>
-        `;
+        this._left.innerHTML = `
+            <span>Bars: <b>${this._state.bars}</b></span>
+            <span>Indicators: <b>${this._state.indicators}</b></span>
+            <span>Drawings: <b>${this._state.drawings}</b></span>
+            <span>Cursor: <b>${this._state.cursorPrice}</b> @ ${this._state.cursorIdx}</span>`;
+        this._right.innerHTML = `<span>FPS: <b>${this._state.fps}</b></span><span>Advanced Chart v0.2</span>`;
     }
 }

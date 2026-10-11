@@ -1,9 +1,16 @@
 /**
  * EventManager.js
  * Centralized event handling for mouse, touch, keyboard, and wheel.
- * Supports crosshair tracking, panning, zooming, and drawing tool interaction.
  *
- * Uses pointer events for unified mouse/touch/pen handling.
+ * TradingView-style interaction model:
+ *  - Left-click drag = PAN the chart (default behavior)
+ *  - Hover = crosshair follows cursor
+ *  - Click on a drawing (no tool active) = select & drag it
+ *  - Active tool = draw mode
+ *  - Wheel = zoom; Shift+wheel = pan horizontally
+ *  - Pinch (touch) = zoom
+ *
+ * Movement threshold prevents accidental pan on simple clicks.
  */
 import { MathUtils } from '../utils/MathUtils.js';
 
@@ -23,14 +30,21 @@ export class EventManager {
         this.downX = 0;
         this.downY = 0;
         this.downTime = 0;
+        this.draggedSinceDown = false;
+        this.moveThreshold = 3; // px — below this we treat as click, not drag
+
+        // The action being performed during the current pointer-down sequence
+        // 'pan' | 'draw' | 'select-drag' | 'none'
+        this.activeAction = 'none';
+
+        // For select-drag: which drawing handle/anchor is being moved
+        this._dragTarget = null;
+        this._dragAnchorIndex = -1;
 
         // Multi-touch pinch
-        this.touches = new Map();
         this.pinchStartDist = 0;
         this.pinchStartSpacing = 0;
-
-        // Mode: 'pan' | 'draw' | 'crosshair'
-        this.mode = 'crosshair';
+        this.pinchStartMid = null;
 
         // Bound handlers
         this._onPointerDown = this._onPointerDown.bind(this);
@@ -59,17 +73,12 @@ export class EventManager {
         this.element.addEventListener('touchmove', this._onTouchMove, { passive: false });
         this.element.addEventListener('touchend', this._onTouchEnd);
         window.addEventListener('keydown', this._onKeyDown);
-
-        // Prevent default touch behaviors on the canvas
         this.element.style.touchAction = 'none';
     }
 
     _getPos(e) {
         const rect = this.element.getBoundingClientRect();
-        return {
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        };
+        return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     }
 
     _onPointerDown(e) {
@@ -83,9 +92,22 @@ export class EventManager {
         this.downX = x;
         this.downY = y;
         this.downTime = performance.now();
-        this.mode = (e.button === 1 || e.button === 2 || e.shiftKey) ? 'pan' : (this.engine.activeTool ? 'draw' : 'crosshair');
-        if (this.mode === 'draw' && this.engine.drawingManager) {
+        this.draggedSinceDown = false;
+
+        // Decide what action to start
+        if (this.engine.activeTool) {
+            this.activeAction = 'draw';
             this.engine.drawingManager.onPointerDown(x, y, this.engine.activeTool);
+        } else if (e.button === 2 || e.shiftKey) {
+            // Right button or shift = force pan
+            this.activeAction = 'pan';
+        } else {
+            // Default: check if we clicked on a drawing (for select/drag).
+            // Otherwise pan. The decision happens on first move with threshold.
+            this.activeAction = 'pending';
+            this._dragTarget = this.engine.drawingManager
+                ? this.engine.drawingManager.hitTestTopMost(x, y)
+                : null;
         }
         this.engine.requestRender();
     }
@@ -99,24 +121,41 @@ export class EventManager {
         if (this.isPointerDown) {
             const dx = x - this.lastPointerX;
             const dy = y - this.lastPointerY;
-            if (this.mode === 'pan') {
+            const totalMove = Math.abs(x - this.downX) + Math.abs(y - this.downY);
+            if (totalMove > this.moveThreshold) this.draggedSinceDown = true;
+
+            // Resolve pending action once movement exceeds threshold
+            if (this.activeAction === 'pending' && this.draggedSinceDown) {
+                if (this._dragTarget) {
+                    this.activeAction = 'select-drag';
+                } else {
+                    this.activeAction = 'pan';
+                }
+            }
+
+            if (this.activeAction === 'pan') {
                 this.engine.viewport.panBy(-dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
-                // Vertical pan = price scale scroll if not autoscale
                 if (!this.engine.viewport.autoScale && dy !== 0) {
                     const range = this.engine.viewport.priceRange;
                     const span = range.max - range.min;
                     const shift = (dy / this.engine.viewport.priceHeight) * span;
                     this.engine.viewport.priceRange = { min: range.min + shift, max: range.max + shift };
                 }
-            } else if (this.mode === 'draw' && this.engine.drawingManager) {
+            } else if (this.activeAction === 'draw') {
                 this.engine.drawingManager.onPointerMove(x, y);
+            } else if (this.activeAction === 'select-drag' && this._dragTarget) {
+                this.engine.drawingManager.dragDrawing(this._dragTarget, x, y, dx, dy);
             }
             this.lastPointerX = x;
             this.lastPointerY = y;
-        } else if (this.engine.drawingManager && this.engine.activeTool) {
-            // Hover preview while drawing
-            this.engine.drawingManager.onPointerHover(x, y);
+        } else {
+            // Hover only — update crosshair and drawing hover state
+            if (this.engine.drawingManager && this.engine.activeTool) {
+                this.engine.drawingManager.onPointerHover(x, y);
+            } else if (this.engine.drawingManager) {
+                this.engine.drawingManager.updateHover(x, y);
+            }
         }
 
         this.engine.crosshair.update(x, y, this.pointerInside);
@@ -125,12 +164,16 @@ export class EventManager {
 
     _onPointerUp(e) {
         const { x, y } = this._getPos(e);
-        const wasDrawing = this.mode === 'draw';
-        this.isPointerDown = false;
-        if (wasDrawing && this.engine.drawingManager) {
+
+        if (this.activeAction === 'draw') {
             this.engine.drawingManager.onPointerUp(x, y);
+        } else if (this.activeAction === 'pending' && !this.draggedSinceDown) {
+            // It was a click, not a drag — try to select/deselect a drawing
+            this.engine.drawingManager.handleClick(x, y);
         }
-        this.mode = 'crosshair';
+        this.isPointerDown = false;
+        this.activeAction = 'none';
+        this._dragTarget = null;
         this.engine.requestRender();
     }
 
@@ -142,42 +185,50 @@ export class EventManager {
 
     _onWheel(e) {
         e.preventDefault();
-        const { x } = this._getPos(e);
+        const { x, y } = this._getPos(e);
         if (e.ctrlKey) {
-            // Pinch-like zoom on trackpads
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
             this.engine.viewport.zoomAt(x, factor);
+        } else if (e.shiftKey) {
+            // Shift + wheel = horizontal pan
+            this.engine.viewport.panBy(e.deltaY);
+        } else if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+            this.engine.viewport.panBy(e.deltaX);
         } else {
-            // Horizontal scroll = pan, vertical = zoom
-            if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-                this.engine.viewport.panBy(e.deltaX);
-            } else {
-                const factor = e.deltaY < 0 ? 1.1 : 0.9;
-                this.engine.viewport.zoomAt(x, factor);
-            }
+            const factor = e.deltaY < 0 ? 1.15 : 0.87;
+            this.engine.viewport.zoomAt(x, factor);
         }
         this.engine.viewport.updatePriceRange(this.engine.dataManager);
         this.engine.requestRender();
     }
 
-    _onContextMenu(e) {
-        e.preventDefault();
-    }
+    _onContextMenu(e) { e.preventDefault(); }
 
     _onKeyDown(e) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
         if (e.key === 'Escape' && this.engine.drawingManager) {
             this.engine.drawingManager.cancelDrawing();
             this.engine.setActiveTool(null);
         }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && this.engine.drawingManager.selectedId) {
+            this.engine.drawingManager.deleteSelected();
+            this.engine.requestRender();
+        }
     }
 
-    // ---- Multi-touch (pinch zoom + two-finger pan) ----
     _onTouchStart(e) {
         if (e.touches.length === 2) {
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             this.pinchStartDist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
             this.pinchStartSpacing = this.engine.viewport.barSpacing;
+            const rect = this.element.getBoundingClientRect();
+            this.pinchStartMid = {
+                x: ((t1.clientX + t2.clientX) / 2) - rect.left,
+                y: ((t1.clientY + t2.clientY) / 2) - rect.top
+            };
+            // Cancel any in-progress draw/select
+            this.activeAction = 'none';
         }
     }
 
@@ -186,10 +237,8 @@ export class EventManager {
             e.preventDefault();
             const [t1, t2] = [e.touches[0], e.touches[1]];
             const dist = MathUtils.distance(t1.clientX, t1.clientY, t2.clientX, t2.clientY);
-            if (this.pinchStartDist > 0) {
+            if (this.pinchStartDist > 0 && this.pinchStartMid) {
                 const factor = dist / this.pinchStartDist;
-                const rect = this.element.getBoundingClientRect();
-                const cx = ((t1.clientX + t2.clientX) / 2) - rect.left;
                 this.engine.viewport.barSpacing = MathUtils.clamp(
                     this.pinchStartSpacing * factor,
                     this.engine.viewport.minBarSpacing,
@@ -204,6 +253,7 @@ export class EventManager {
     _onTouchEnd(e) {
         if (e.touches.length < 2) {
             this.pinchStartDist = 0;
+            this.pinchStartMid = null;
         }
     }
 

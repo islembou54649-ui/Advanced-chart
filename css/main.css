@@ -6,6 +6,7 @@
     --ac-accent: #2962ff;
     --ac-bg: #0e1117;
     --ac-surface: #0a0d12;
+    --ac-surface-2: #131722;
     --ac-text: #cfd3dc;
     --ac-muted: #6e7681;
     --ac-border: rgba(255, 255, 255, 0.06);
@@ -15,12 +16,7 @@
     --ac-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
 }
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    -webkit-tap-highlight-color: transparent;
-}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
 html, body {
     width: 100%;
@@ -57,29 +53,23 @@ html, body {
     height: var(--ac-toolbar-h);
 }
 
-.ac-chart-container {
+.ac-chart-area {
     flex: 1 1 auto;
     position: relative;
     overflow: hidden;
+}
+
+.ac-pane-container {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
-}
-
-.ac-canvas-container {
-    flex: 1 1 auto;
-    position: relative;
+    flex-direction: column;
     overflow: hidden;
-}
-
-.ac-canvas-container canvas {
-    display: block;
 }
 
 .ac-overlay-container {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none;
     overflow: hidden;
 }
@@ -96,18 +86,46 @@ button {
     background: none;
     color: inherit;
 }
-
 button:focus-visible {
     outline: 2px solid var(--ac-accent);
     outline-offset: 1px;
 }
+select { font-family: inherit; }
 
-select {
-    font-family: inherit;
-}
-
-/* Prevent text selection during chart interactions */
 .ac-canvas-container, .ac-toolbar, .ac-statusbar {
     user-select: none;
     -webkit-user-select: none;
+}
+
+/* Pane styles */
+.ac-pane {
+    flex: 0 0 auto;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--ac-bg);
+    overflow: hidden;
+}
+.ac-pane-main {
+    flex: 1 1 auto;
+}
+.ac-pane-header {
+    flex: 0 0 0;
+    display: none; /* hidden by default; could enable for pane titles */
+}
+.ac-pane-canvas-container {
+    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+}
+.ac-pane-resize-handle {
+    flex: 0 0 4px;
+    background: var(--ac-border);
+    cursor: ns-resize;
+    position: relative;
+    z-index: 5;
+}
+.ac-pane-resize-handle:hover,
+.ac-pane-resize-handle:active {
+    background: var(--ac-accent);
 }
