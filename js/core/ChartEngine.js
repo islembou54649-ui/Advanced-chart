@@ -7,7 +7,8 @@
  * - Crosshair vertical line extends across ALL regions (connected, not broken).
  * - Current-price line extends across ALL regions.
  * - Divider lines between regions are drawn on the same canvas.
- * - No floating tooltip — info is drawn as a fixed bar in the bottom-left.
+ * - No floating tooltip — cursor candle OHLCV info is drawn as a FIXED bar at the
+ *   top-left, just below the top info strip (at y=28). // FIX: moved from bottom-left.
  * - No legend card — info is drawn as a horizontal strip at the top.
  *
  * Render order per frame:
@@ -15,10 +16,14 @@
  *   2. For each region (main + indicators): gridlines + content (clipped)
  *   3. Divider lines between regions
  *   4. Current-price line (extends across ALL regions, unclipped)
- *   5. Crosshair vertical line (extends across ALL regions, unclipped)
- *   6. Time axis labels (bottom strip)
+ *   5. Time axis labels (bottom strip) — drawn BEFORE crosshair
+ *   6. Crosshair (extends across ALL regions + time label on time axis, unclipped)
+ *      // FIX: Time axis is now rendered BEFORE the crosshair so the crosshair's
+ *      // time label box appears ON TOP of the time axis background (was previously
+ *      // drawn underneath and hidden).
  *   7. Top info strip (symbol + price + OHLCV as horizontal text)
- *   8. Bottom info bar (cursor candle OHLCV, fixed in bottom-left)
+ *   8. Cursor info bar (cursor candle OHLCV, FIXED at top-left just below the top
+ *      strip at y=28 — was previously at the bottom of the chart)
  *   9. DOM overlays (settings card only)
  */
 import { Canvas } from './Canvas.js';
@@ -226,13 +231,15 @@ export class ChartEngine {
         // === 4. Current-price line (extends across ALL regions, unclipped) ===
         this._drawCurrentPriceLine(ctx, regions, theme, priceScaleW);
 
-        // === 5. Crosshair (extends across ALL regions, unclipped) ===
-        this._drawCrosshair(ctx, regions, dm, theme, priceScaleW, canvasW, canvasH);
-
-        // === 6. Time axis labels (bottom strip) ===
+        // === 5. Time axis labels (bottom strip) — drawn BEFORE crosshair so the
+        //        crosshair's time label appears ON TOP of the time axis background ===
         if (timeAxisRegion) {
             this._renderTimeAxisRegion(ctx, timeAxisRegion, dm, theme, priceScaleW);
         }
+
+        // === 6. Crosshair (extends across ALL regions, unclipped) — drawn AFTER
+        //        time axis so its time label is visible on top ===
+        this._drawCrosshair(ctx, regions, dm, theme, priceScaleW, canvasW, canvasH);
 
         // === 7. Top info strip (horizontal text: symbol + price + OHLCV) ===
         this._drawTopInfoStrip(ctx, dm, theme, canvasW);
@@ -579,8 +586,12 @@ export class ChartEngine {
     }
 
     /**
-     * Draw the bottom info bar: cursor candle OHLCV, fixed in the bottom-left
-     * of the chart area (above the time axis). This replaces the floating tooltip.
+     * Draw the cursor-candle info bar: FIXED in the top-left corner, just below
+     * the top info strip. Shows the OHLCV of the candle under the cursor.
+     * This replaces the floating tooltip that used to follow the mouse.
+     *
+     * User requested: "put it under the top strip in the left corner" — so it's
+     * a fixed horizontal line of text at y=28 (right below the top strip at y=8).
      */
     _drawBottomInfoBar(ctx, regions, dm, theme, priceScaleW) {
         if (!this.eventManager.pointerInside) return;
@@ -589,23 +600,9 @@ export class ChartEngine {
         if (idx < 0 || idx >= dm.size) return;
         const c = dm.get(idx);
         if (!c) return;
-        // Find the bottom-most indicator region (just above time axis)
-        let barY = 0;
-        const mainRegion = regions.find(r => r.id === 'main');
-        if (mainRegion) barY = mainRegion.rect.y + mainRegion.rect.h;
-        for (const r of regions) {
-            if (r.id === 'timeaxis' || r.id === 'main') continue;
-            barY = r.rect.y + r.rect.h;
-        }
-        // Position the info bar 4px above the time axis (which is below the last region)
-        // Actually, position it at the top-left of the main region for visibility
-        barY = mainRegion ? mainRegion.rect.y + 4 : 4;
-        // But we want it at the bottom — let me put it at the bottom of the main region
-        // Actually, let me put it at the TOP-LEFT of the main region, below the top info strip
-        // No — user said "bottom-left corner". Let me put it just above the time axis.
-        const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
-        if (timeAxisRegion) barY = timeAxisRegion.rect.y - 20;
 
+        // FIXED position: top-left, just below the top info strip (y=8, height ~16, so y=28)
+        const barY = 28;
         const change = c.close - c.open;
         const changePct = c.open ? (change / c.open) * 100 : 0;
         const isUp = change >= 0;
@@ -615,12 +612,12 @@ export class ChartEngine {
 
         ctx.save();
         ctx.font = "11px 'JetBrains Mono', monospace";
-        ctx.textBaseline = 'bottom';
+        ctx.textBaseline = 'top';
         ctx.textAlign = 'left';
         let x = 12;
         // Time
         ctx.fillStyle = theme.mutedText;
-        ctx.fillText(timeStr, x, barY + 14);
+        ctx.fillText(timeStr, x, barY);
         x += ctx.measureText(timeStr).width + 16;
         // O H L C
         const parts = [
@@ -631,20 +628,20 @@ export class ChartEngine {
         ];
         for (const p of parts) {
             ctx.fillStyle = theme.mutedText;
-            ctx.fillText(p.label, x, barY + 14);
+            ctx.fillText(p.label, x, barY);
             x += ctx.measureText(p.label).width + 4;
             ctx.fillStyle = color;
-            ctx.fillText(p.value, x, barY + 14);
+            ctx.fillText(p.value, x, barY);
             x += ctx.measureText(p.value).width + 12;
         }
         // Change
         const changeTxt = `${change >= 0 ? '+' : ''}${change.toFixed(4)} (${changePct.toFixed(2)}%)`;
         ctx.fillStyle = color;
-        ctx.fillText(changeTxt, x, barY + 14);
+        ctx.fillText(changeTxt, x, barY);
         x += ctx.measureText(changeTxt).width + 12;
         // Volume
         ctx.fillStyle = theme.mutedText;
-        ctx.fillText('Vol ' + this._fmtVol(c.volume), x, barY + 14);
+        ctx.fillText('Vol ' + this._fmtVol(c.volume), x, barY);
         ctx.restore();
     }
 
