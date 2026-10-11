@@ -13,9 +13,9 @@ import { MathUtils } from '../utils/MathUtils.js';
 export class PriceScale {
     constructor(options = {}) {
         this.width = options.width || 72;
-        this.fontSize = options.fontSize || 11;
+        this.fontSize = options.fontSize || 10;
         this.fontFamily = options.fontFamily || "'JetBrains Mono', 'Consolas', monospace";
-        this.tickCount = options.tickCount || 7;
+        this.tickCount = options.tickCount || 14; // FIX: was 7, user wants denser axis (~12+)
         this.align = options.align || 'right';
     }
 

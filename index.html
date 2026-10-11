@@ -15,6 +15,16 @@
 </head>
 <body>
     <div id="chart-root"></div>
+    <script>
+        // FIX: Capture runtime errors so tests can verify chart loads cleanly
+        window.__errors = [];
+        window.addEventListener('error', (e) => {
+            window.__errors.push({ message: e.message, source: e.filename, line: e.lineno, col: e.colno });
+        });
+        window.addEventListener('unhandledrejection', (e) => {
+            window.__errors.push({ message: 'Unhandled rejection: ' + (e.reason && (e.reason.message || e.reason)), source: 'promise', line: 0, col: 0 });
+        });
+    </script>
     <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -11,6 +11,7 @@
  */
 import { DomUtils } from '../utils/DomUtils.js';
 import { INDICATOR_REGISTRY } from '../indicators/IndicatorManager.js';
+import { CHART_TYPES } from '../series/ChartTypeManager.js';
 
 const TOOL_CATEGORIES = [
     {
@@ -116,6 +117,13 @@ export class Toolbar {
         ]);
         indTrigger.addEventListener('click', (e) => this._toggleMenu('ind', indTrigger));
 
+        // Chart type dropdown trigger
+        const chartTypeTrigger = DomUtils.el('button', { class: 'ac-toolbar-btn ac-toolbar-menu-trigger', title: 'Chart Type' }, [
+            DomUtils.el('span', {}, 'Chart Type'),
+            DomUtils.el('span', { class: 'ac-caret' }, '▾')
+        ]);
+        chartTypeTrigger.addEventListener('click', (e) => this._toggleMenu('charttype', chartTypeTrigger));
+
         // Interval group
         const intervalGroup = DomUtils.el('div', { class: 'ac-toolbar-group' });
         for (const iv of ['1m', '5m', '15m', '1h', '4h', '1D', '1W']) {
@@ -146,7 +154,7 @@ export class Toolbar {
         liveBtn.addEventListener('click', () => this.engine.toggleLive());
         rightGroup.append(zoomIn, zoomOut, fitBtn, clearBtn, themeBtn, liveBtn);
 
-        this.element.append(brand, symbolSel, cursorBtn, drawTrigger, indTrigger, intervalGroup, rightGroup);
+        this.element.append(brand, symbolSel, cursorBtn, drawTrigger, indTrigger, chartTypeTrigger, intervalGroup, rightGroup);
     }
 
     _toggleMenu(name, trigger) {
@@ -155,6 +163,7 @@ export class Toolbar {
         const menu = DomUtils.el('div', { class: 'ac-toolbar-menu' });
         if (name === 'draw') this._buildDrawMenu(menu);
         else if (name === 'ind') this._buildIndicatorMenu(menu);
+        else if (name === 'charttype') this._buildChartTypeMenu(menu);
         document.body.appendChild(menu);
         // Position below trigger
         const r = trigger.getBoundingClientRect();
@@ -204,6 +213,32 @@ export class Toolbar {
                 ]);
                 item.addEventListener('click', () => {
                     this.engine.addIndicator(it.key, {});
+                    this._closeMenus();
+                });
+                menu.appendChild(item);
+            }
+        }
+    }
+
+    _buildChartTypeMenu(menu) {
+        // Group by category
+        const cats = {};
+        for (const ct of CHART_TYPES) {
+            if (!cats[ct.category]) cats[ct.category] = [];
+            cats[ct.category].push(ct);
+        }
+        const current = this.engine.getChartType();
+        for (const [catName, items] of Object.entries(cats)) {
+            const catEl = DomUtils.el('div', { class: 'ac-menu-category' }, catName);
+            menu.appendChild(catEl);
+            for (const ct of items) {
+                const isCurrent = ct.id === current;
+                const item = DomUtils.el('button', { class: 'ac-menu-item' + (isCurrent ? ' active' : ''), dataset: { chartType: ct.id } }, [
+                    DomUtils.el('span', { class: 'ac-menu-icon' }, isCurrent ? '●' : '○'),
+                    DomUtils.el('span', {}, ct.label)
+                ]);
+                item.addEventListener('click', () => {
+                    this.engine.setChartType(ct.id);
                     this._closeMenus();
                 });
                 menu.appendChild(item);

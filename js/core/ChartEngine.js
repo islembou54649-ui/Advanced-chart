@@ -35,6 +35,7 @@ import { DataFeed } from '../data/DataFeed.js';
 import { PriceScale } from '../scale/PriceScale.js';
 import { TimeScale } from '../scale/TimeScale.js';
 import { CandleSeries } from '../series/CandleSeries.js';
+import { ChartTypeManager, CHART_TYPES } from '../series/ChartTypeManager.js';
 import { Crosshair } from '../ui/Crosshair.js';
 import { StatusBar } from '../ui/StatusBar.js';
 import { Toolbar } from '../ui/Toolbar.js';
@@ -86,6 +87,7 @@ export class ChartEngine {
 
         // Series
         this.candleSeries = new CandleSeries();
+        this.chartTypeManager = new ChartTypeManager();
 
         // Drawing manager
         this.drawingManager = new DrawingManager();
@@ -293,7 +295,8 @@ export class ChartEngine {
         ctx.beginPath();
         ctx.rect(0, 0, chartW, h - h * 0.05);
         ctx.clip();
-        this.candleSeries.draw(ctx, vp, dm, theme);
+        // FIX: use ChartTypeManager to render the current chart type (candles, hollow, heikin-ashi, etc.)
+        this.chartTypeManager.draw(ctx, vp, dm, theme);
 
         // Overlay indicators
         for (const ind of this.indicatorManager.overlays) {
@@ -831,6 +834,12 @@ export class ChartEngine {
     }
 
     // ---- Public API ----
+    setChartType(type) {
+        this.chartTypeManager.set(type);
+        this.requestRender();
+    }
+    getChartType() { return this.chartTypeManager.get(); }
+
     setActiveTool(tool) {
         this.activeTool = tool;
         this.drawingManager.setActiveTool(tool);

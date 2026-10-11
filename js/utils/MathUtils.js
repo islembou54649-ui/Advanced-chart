@@ -61,18 +61,53 @@ export const MathUtils = {
 
     /**
      * Generate nice tick values between min and max.
+     * FIX: Previous implementation pre-rounded the range via niceNumber(max-min, false),
+     * which inflated the step and produced far fewer ticks than requested (e.g. tickCount=14
+     * yielded only ~5-7 visible ticks). The new implementation picks the nice step from
+     * {1, 2, 2.5, 5, 10} × 10^exp whose resulting tick count is closest to maxTicks,
+     * giving the user a density close to what they requested (e.g. tickCount=14 → ~10-14 ticks).
      */
     niceTicks(min, max, maxTicks = 8) {
         if (min === max) {
             min -= 1;
             max += 1;
         }
-        const range = this.niceNumber(max - min, false);
-        const step = this.niceNumber(range / (maxTicks - 1), true);
+        const rawRange = max - min;
+        if (rawRange <= 0) return { ticks: [min], step: 1, min, max };
+        // Candidate nice multipliers; FIX: include 2.5 for finer granularity
+        const multipliers = [1, 2, 2.5, 5, 10];
+        // Initial guess for magnitude based on raw step
+        const rawStep = rawRange / Math.max(1, maxTicks - 1);
+        const exp0 = Math.floor(Math.log10(rawStep));
+        // Consider candidates at exp0 and exp0+1 (one magnitude larger) so we can find
+        // the step whose tick count is closest to maxTicks.
+        const candidates = [];
+        for (const e of [exp0, exp0 + 1]) {
+            const base = Math.pow(10, e);
+            for (const m of multipliers) candidates.push(m * base);
+        }
+        // For each candidate step, estimate the total tick count it would produce.
+        // Pick the candidate whose count is closest to maxTicks; tie → smaller step (denser).
+        let bestStep = candidates[0];
+        let bestErr = Infinity;
+        for (const step of candidates) {
+            if (step <= 0) continue;
+            const count = rawRange / step + 1; // approximate number of ticks
+            const err = Math.abs(count - maxTicks);
+            if (err < bestErr || (err === bestErr && step < bestStep)) {
+                bestErr = err;
+                bestStep = step;
+            }
+        }
+        const step = bestStep;
         const niceMin = Math.floor(min / step) * step;
         const niceMax = Math.ceil(max / step) * step;
         const ticks = [];
-        for (let v = niceMin; v <= niceMax + step * 0.5; v += step) {
+        // Guard against tiny step producing huge arrays
+        const maxIter = Math.min(1000, Math.round((niceMax - niceMin) / step) + 2);
+        for (let i = 0; i <= maxIter; i++) {
+            const v = niceMin + i * step;
+            if (v > niceMax + step * 0.5) break;
             ticks.push(v);
         }
         return { ticks, step, min: niceMin, max: niceMax };
