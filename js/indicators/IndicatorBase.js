@@ -32,9 +32,30 @@ export class IndicatorBase {
     calculate(dm) {}
 
     ensureCalculated(dm) {
-        if (this._lastDataVersion !== dm.size) {
+        // FIX: Key the recalc check off `dm.version` (a counter bumped on EVERY
+        // data mutation) instead of `dm.size`.
+        //
+        // The previous `dm.size` check had two failure modes:
+        //   1. Live tick on the current bar — `DataManager.updateLast()` mutates
+        //      the last candle in place WITHOUT changing `dm.size`, so this
+        //      check would pass (skip recalc) and the indicator line would lag
+        //      the live candle by one tick (or, after the first live tick,
+        //      freeze indefinitely).
+        //   2. Stale buffer length when data shrinks — when `loadFrom()` reduces
+        //      `dm.size` (e.g. symbol switch / timeframe change), the cached
+        //      indicator buffers retained their old (larger) length, and the
+        //      right edge of the chart would draw into the stale, zero-filled
+        //      tail — visible as a vertical "crash" of the line at the last
+        //      few candles.
+        //
+        // Using `dm.version` (which is also bumped by `updateLast`'s mutate
+        // branch and by `loadFrom`) closes both holes: `calculate(dm)` is now
+        // invoked on every data change, and because `calculate` allocates a new
+        // buffer from `dm.raw()` (which now returns size-truncated subarrays),
+        // the buffer length always matches the current `dm.size`.
+        if (this._lastDataVersion !== dm.version) {
             this.calculate(dm);
-            this._lastDataVersion = dm.size;
+            this._lastDataVersion = dm.version;
         }
     }
 

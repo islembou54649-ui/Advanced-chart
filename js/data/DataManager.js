@@ -16,6 +16,16 @@ export class DataManager {
     constructor(initialCapacity = 5000) {
         this._capacity = initialCapacity;
         this._size = 0;
+        // FIX: Monotonically-increasing version counter. Bumped on EVERY data
+        // mutation (push / updateLast / loadFrom / clear). Used by
+        // IndicatorBase.ensureCalculated() to decide whether an indicator's
+        // cached buffers are stale.
+        //
+        // Why not just use `dm.size`? Because `updateLast()` mutates the last
+        // candle in place when the timestamp matches (live tick on the current
+        // bar) WITHOUT changing `dm.size`. Using `dm.size` as the version would
+        // cause indicators to silently keep stale values for the live candle.
+        this._version = 0;
         this.times = new Float64Array(initialCapacity);
         this.opens = new Float64Array(initialCapacity);
         this.highs = new Float64Array(initialCapacity);
@@ -59,6 +69,7 @@ export class DataManager {
         this.lows[i] = low;
         this.closes[i] = close;
         this.volumes[i] = volume;
+        this._version++; // FIX: bump version so indicators recalc on append.
         this._notify('append', i);
         return i;
     }
@@ -76,6 +87,11 @@ export class DataManager {
             this.lows[i] = low;
             this.closes[i] = close;
             this.volumes[i] = volume;
+            // FIX: bump version on in-place mutation. `dm.size` does NOT change
+            // here, so without this bump, `IndicatorBase.ensureCalculated()`
+            // (which previously keyed off `dm.size`) would skip recalculation —
+            // leaving the indicator line stale on the live (rightmost) candle.
+            this._version++;
             this._notify('update', i);
             return i;
         }
@@ -102,15 +118,34 @@ export class DataManager {
 
     /**
      * Get raw arrays for fast iteration (no allocation per candle).
+     *
+     * FIX: Return TypedArray *views* truncated to `this._size` rather than the
+     * full-capacity backing arrays.
+     *
+     * Previously this returned the underlying Float64Arrays whose `.length` is
+     * the *capacity* (e.g. 10000), NOT the number of valid candles
+     * (`dm.size`, e.g. 1500). Every indicator's `calculate(dm)` reads
+     * `closes.length` (or `highs.length`, etc.) as its iteration bound and
+     * allocates output buffers with `new Float64Array(src.length)`. That meant
+     * indicators iterated past `dm.size` into the zero-initialized tail of the
+     * backing array, producing garbage values that decay toward 0. The chart
+     * then drew those garbage values at the right edge (since `rightEdge` can
+     * exceed `dm.size - 1` when `rightOffset > 0`), causing the SMA/EMA line
+     * to appear to "crash" vertically at the last few candles.
+     *
+     * `subarray()` is O(1) — it creates a view over the same backing buffer,
+     * no copy — so this fix is free at runtime and corrects the buffer length
+     * for every indicator at once.
      */
     raw() {
+        const n = this._size;
         return {
-            times: this.times,
-            opens: this.opens,
-            highs: this.highs,
-            lows: this.lows,
-            closes: this.closes,
-            volumes: this.volumes
+            times: this.times.subarray(0, n),
+            opens: this.opens.subarray(0, n),
+            highs: this.highs.subarray(0, n),
+            lows: this.lows.subarray(0, n),
+            closes: this.closes.subarray(0, n),
+            volumes: this.volumes.subarray(0, n)
         };
     }
 
@@ -185,11 +220,19 @@ export class DataManager {
             this.closes[i] = c.close;
             this.volumes[i] = c.volume || 0;
         }
+        this._version++; // FIX: bump version so indicators recalc after a full reload.
         this._notify('load', -1);
     }
 
     clear() {
         this._size = 0;
+        this._version++; // FIX: bump version so indicators recalc after clear.
         this._notify('clear', -1);
     }
+
+    /**
+     * FIX: Expose the data version for `IndicatorBase.ensureCalculated()`.
+     * Incremented on every push / updateLast / loadFrom / clear.
+     */
+    get version() { return this._version; }
 }
