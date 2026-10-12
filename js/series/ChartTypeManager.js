@@ -1,8 +1,8 @@
 /**
  * ChartTypeManager.js
- * Manages chart/candle rendering types. 20 types available:
+ * Manages chart/candle rendering types. 30 types available:
  *
- * Standard candles:
+ * Standard candles (10):
  *  1. candles       — Standard Japanese candlestick
  *  2. hollow        — Hollow candles (up = outline, down = filled)
  *  3. heikinAshi    — Heikin-Ashi candles (smoothed)
@@ -14,7 +14,7 @@
  *  9. lineMarkers   — Close line with dot markers
  * 10. mountain      — Area with gradient fill
  *
- * Special candles:
+ * Special candles (10):
  * 11. bodyOnly      — Candles without wicks
  * 12. highLow       — High-low bars only (no body)
  * 13. medianCandle  — Candles with median line through body
@@ -26,8 +26,17 @@
  * 19. elastic       — Elastic volume-weighted candles
  * 20. rangeBar      — Range bars (price-range based)
  *
- * "Pushed candles" (الشموع المدفوعة) = Hollow candles type #2,
- * where up candles are hollow (only outline) and down candles are filled.
+ * Pushed/Hollow candles (10) — الشموع المدفوعة:
+ * 21. hollowUp        — Up candles hollow, down filled (classic)
+ * 22. hollowDown      — Down candles hollow, up filled (reverse)
+ * 23. hollowBoth      — Both up & down hollow (outlines only)
+ * 24. hollowColored   — Hollow with bright colored outlines
+ * 25. hollowPushed    — Hollow with thick borders (pushed look)
+ * 26. hollowMinimal   — Very thin hollow outline, no wicks
+ * 27. hollowFilled    — Semi-transparent fill + outline
+ * 28. hollowClassic   — TradingView classic hollow style
+ * 29. hollowWickOnly  — Hollow body, colored wicks only
+ * 30. hollowBiColor   — Up = green hollow, Down = red hollow, diff wick colors
  */
 export const CHART_TYPES = [
     { id: 'candles',       label: 'Candles',          category: 'Standard' },
@@ -49,7 +58,17 @@ export const CHART_TYPES = [
     { id: 'coloredCandle', label: 'Colored Candles',  category: 'Special' },
     { id: 'deltaCandle',   label: 'Delta Candles',    category: 'Special' },
     { id: 'elastic',       label: 'Elastic',          category: 'Special' },
-    { id: 'rangeBar',      label: 'Range Bars',       category: 'Special' }
+    { id: 'rangeBar',      label: 'Range Bars',       category: 'Special' },
+    { id: 'hollowUp',      label: 'Hollow Up',            category: 'Pushed' },
+    { id: 'hollowDown',    label: 'Hollow Down',          category: 'Pushed' },
+    { id: 'hollowBoth',    label: 'Hollow Both',          category: 'Pushed' },
+    { id: 'hollowColored', label: 'Hollow Colored',       category: 'Pushed' },
+    { id: 'hollowPushed',  label: 'Hollow Pushed',        category: 'Pushed' },
+    { id: 'hollowMinimal', label: 'Hollow Minimal',       category: 'Pushed' },
+    { id: 'hollowFilled',  label: 'Hollow Filled',        category: 'Pushed' },
+    { id: 'hollowClassic', label: 'Hollow Classic',       category: 'Pushed' },
+    { id: 'hollowWickOnly', label: 'Hollow Wick Only',    category: 'Pushed' },
+    { id: 'hollowBiColor', label: 'Hollow Bi-Color',      category: 'Pushed' }
 ];
 
 export class ChartTypeManager {
@@ -129,6 +148,17 @@ export class ChartTypeManager {
             case 'deltaCandle':
             case 'elastic':
             case 'rangeBar':
+            // Pushed/Hollow variants
+            case 'hollowUp':
+            case 'hollowDown':
+            case 'hollowBoth':
+            case 'hollowColored':
+            case 'hollowPushed':
+            case 'hollowMinimal':
+            case 'hollowFilled':
+            case 'hollowClassic':
+            case 'hollowWickOnly':
+            case 'hollowBiColor':
                 this._drawCandleVariant(ctx, viewport, dm, theme, type);
                 break;
             case 'barChart':
@@ -227,7 +257,9 @@ export class ChartTypeManager {
             }
 
             // Wick (skip for bodyOnly)
-            if (type !== 'bodyOnly' && type !== 'shadowCandle') {
+            // FIX: hollowMinimal is documented as "no wicks" but was still drawing them.
+            //      Added hollowMinimal to the skip list so it renders as outline-only.
+            if (type !== 'bodyOnly' && type !== 'shadowCandle' && type !== 'hollowMinimal') {
                 ctx.fillStyle = wc;
                 if (type === 'highLow' || type === 'squared') {
                     // Thin line
@@ -254,9 +286,19 @@ export class ChartTypeManager {
                 ctx.strokeStyle = c;
                 ctx.lineWidth = 1;
                 ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
-            } else if (type === 'hollow') {
+            } else if (type === 'hollow' || type === 'hollowUp' || type === 'hollowClassic') {
                 // Up = hollow (outline only), Down = filled
                 if (isUp) {
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = type === 'hollowClassic' ? 2 : 1.5;
+                    ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+                } else {
+                    ctx.fillStyle = c;
+                    ctx.fillRect(x - bw / 2, bodyTop, bw, bodyH);
+                }
+            } else if (type === 'hollowDown') {
+                // Reverse: Down = hollow, Up = filled
+                if (!isUp) {
                     ctx.strokeStyle = c;
                     ctx.lineWidth = 1.5;
                     ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
@@ -264,6 +306,61 @@ export class ChartTypeManager {
                     ctx.fillStyle = c;
                     ctx.fillRect(x - bw / 2, bodyTop, bw, bodyH);
                 }
+            } else if (type === 'hollowBoth') {
+                // Both up & down = hollow (outlines only)
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+            } else if (type === 'hollowColored') {
+                // Hollow with bright colored outlines (up = bright green, down = bright red)
+                const brightUp = '#00e676';
+                const brightDown = '#ff1744';
+                ctx.strokeStyle = isUp ? brightUp : brightDown;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+            } else if (type === 'hollowPushed') {
+                // Hollow with thick borders (pushed look) — up hollow, down filled
+                if (isUp) {
+                    ctx.strokeStyle = c;
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+                } else {
+                    ctx.fillStyle = c;
+                    ctx.fillRect(x - bw / 2, bodyTop, bw, bodyH);
+                    // Inner border
+                    ctx.strokeStyle = theme.lastPriceTagText || '#fff';
+                    ctx.lineWidth = 0.5;
+                    ctx.strokeRect(x - bw / 2 + 1, bodyTop + 1, bw - 2, bodyH - 2);
+                }
+            } else if (type === 'hollowMinimal') {
+                // Very thin hollow outline, NO wicks
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+            } else if (type === 'hollowFilled') {
+                // Semi-transparent fill + outline (both up and down)
+                ctx.fillStyle = this._withAlpha(c, 0.25);
+                ctx.fillRect(x - bw / 2, bodyTop, bw, bodyH);
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+            } else if (type === 'hollowWickOnly') {
+                // Hollow body, but colored wicks (no body fill at all)
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+                // Redraw wick with brighter color
+                const bright = isUp ? '#00e676' : '#ff1744';
+                ctx.fillStyle = bright;
+                ctx.fillRect(x - wickWidth / 2, yHigh, wickWidth, yLow - yHigh);
+            } else if (type === 'hollowBiColor') {
+                // Up = green hollow, Down = red hollow, different wick colors
+                ctx.strokeStyle = c;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(x - bw / 2 + 0.5, bodyTop + 0.5, bw, bodyH);
+                // Brighter wick
+                ctx.fillStyle = isUp ? '#26a69a' : '#ef5350';
+                ctx.fillRect(x - wickWidth / 2, yHigh, wickWidth, yLow - yHigh);
             } else if (type === 'coloredCandle') {
                 // Gradient fill
                 const grad = ctx.createLinearGradient(0, bodyTop, 0, bodyTop + bodyH);
