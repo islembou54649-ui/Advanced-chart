@@ -610,6 +610,11 @@ export class ChartEngine {
         const vp = this.viewport;
         const mainRegion = regions.find(r => r.id === 'main');
         if (!mainRegion) return;
+        // FIX: Don't draw the vertical crosshair line when the cursor is on the
+        // price axis. The snapped index is meaningless there and the line would
+        // overlap the price labels. Only the horizontal line + price label should
+        // appear when the cursor is on the price axis.
+        const inPriceAxis = this.crosshair.x >= canvasW - priceScaleW;
         const snappedX = this.crosshair.snapToBar ? this.crosshair._snapX(vp) : this.crosshair.x;
         // Vertical line: extends from top of main region to bottom of last indicator region
         let bottomY = mainRegion.rect.y + mainRegion.rect.h;
@@ -621,11 +626,13 @@ export class ChartEngine {
         ctx.strokeStyle = theme.crosshairColor;
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
-        // Vertical line
-        ctx.beginPath();
-        ctx.moveTo(snappedX + 0.5, mainRegion.rect.y);
-        ctx.lineTo(snappedX + 0.5, bottomY);
-        ctx.stroke();
+        // Vertical line — ONLY when cursor is in the chart area (not on price axis)
+        if (!inPriceAxis) {
+            ctx.beginPath();
+            ctx.moveTo(snappedX + 0.5, mainRegion.rect.y);
+            ctx.lineTo(snappedX + 0.5, bottomY);
+            ctx.stroke();
+        }
         // Horizontal line (only inside main region, at cursor Y relative to main)
         const cursorYInMain = this.crosshair.y - mainRegion.rect.y;
         if (cursorYInMain >= 0 && cursorYInMain < mainRegion.rect.h) {
@@ -654,9 +661,10 @@ export class ChartEngine {
             ctx.fillText(label, tx + tagW / 2, ty + tagH / 2);
         }
 
-        // Time label on the time axis strip
+        // Time label on the time axis strip — skip when cursor is on the price axis
+        // (the snapped index is meaningless there)
         const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
-        if (timeAxisRegion) {
+        if (timeAxisRegion && !inPriceAxis) {
             const idx = Math.round(vp.xToIndex(snappedX));
             if (idx >= 0 && idx < dm.size) {
                 const time = dm.times[idx];

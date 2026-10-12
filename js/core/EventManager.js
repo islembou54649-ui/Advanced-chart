@@ -95,16 +95,36 @@ export class EventManager {
         this.draggedSinceDown = false;
 
         // FIX: Check if we clicked on a pane button (indicator controls) first.
-        // These are small buttons drawn on canvas next to the indicator name.
         if (this.engine.handlePaneButtonClick(x, y)) {
             this.activeAction = 'none';
             return;
         }
 
+        // FIX: Region detection — determine if the pointer is on the price axis
+        // or the time axis. These have special drag behaviors (like TradingView):
+        //   - Price axis: vertical drag SCALES the price range (zoom)
+        //   - Time axis: drag PANS horizontally only (no price shift)
+        //   - Chart area: drag pans (horizontal) — no vertical price shift
+        const vp = this.engine.viewport;
+        const priceAxisW = this.engine.priceScale.width;
+        const inPriceAxis = x >= vp.width - priceAxisW;
+        // Check if we're on the time axis strip (bottom of the chart)
+        const regions = this.engine.indicatorManager.paneManager.getRegions();
+        const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
+        const inTimeAxis = timeAxisRegion && y >= timeAxisRegion.rect.y && y <= timeAxisRegion.rect.y + timeAxisRegion.rect.h;
+
         // Decide what action to start
         if (this.engine.activeTool) {
             this.activeAction = 'draw';
             this.engine.drawingManager.onPointerDown(x, y, this.engine.activeTool);
+        } else if (inPriceAxis) {
+            // FIX: Price axis drag = scale the price range (not pan)
+            this.activeAction = 'scale-price';
+            this._scaleStartRange = { ...vp.priceRange };
+            this._scaleStartY = y;
+        } else if (inTimeAxis) {
+            // FIX: Time axis drag = horizontal pan only (no vertical price shift)
+            this.activeAction = 'pan-time';
         } else if (e.button === 2 || e.shiftKey) {
             // Right button or shift = force pan
             this.activeAction = 'pan';
@@ -143,18 +163,31 @@ export class EventManager {
                 }
             }
 
-            if (this.activeAction === 'pan') {
-                // FIX: was panBy(-dx) which made dragging reversed (drag right → saw newer bars).
-                // TradingView behavior: drag right → chart follows cursor → see OLDER bars.
-                // panBy(dx) decreases scrollPosition when dx>0, showing older bars. Correct.
+            if (this.activeAction === 'pan' || this.activeAction === 'pan-time') {
+                // FIX: chart-area pan and time-axis pan are HORIZONTAL ONLY.
+                // The old dy price-shift logic was removed — it incorrectly
+                // shifted the price range when dragging vertically on the
+                // chart area or time axis. Price scaling is now done only
+                // via the 'scale-price' action (price axis drag).
                 this.engine.viewport.panBy(dx);
                 this.engine.viewport.updatePriceRange(this.engine.dataManager);
-                if (!this.engine.viewport.autoScale && dy !== 0) {
-                    const range = this.engine.viewport.priceRange;
-                    const span = range.max - range.min;
-                    const shift = (dy / this.engine.viewport.priceHeight) * span;
-                    this.engine.viewport.priceRange = { min: range.min + shift, max: range.max + shift };
-                }
+            } else if (this.activeAction === 'scale-price') {
+                // FIX: Price axis drag = SCALE the price range (zoom).
+                // Drag down (dy>0) → compress range (zoom in, smaller span).
+                // Drag up (dy<0) → expand range (zoom out, larger span).
+                // Disables autoScale so the user's manual scale persists.
+                // FIX (bug found in test): the original factor used
+                // `exp(+totalDy / ...)` which made drag DOWN EXPAND the
+                // span — the opposite of the TradingView-style spec.
+                // Inverted the sign so drag down = compress (zoom in)
+                // and drag up = expand (zoom out).
+                const vp = this.engine.viewport;
+                vp.autoScale = false;
+                const totalDy = y - this._scaleStartY;
+                const factor = Math.exp(-totalDy / Math.max(50, vp.priceHeight));
+                const mid = (this._scaleStartRange.min + this._scaleStartRange.max) / 2;
+                const halfSpan = (this._scaleStartRange.max - this._scaleStartRange.min) / 2 * factor;
+                vp.priceRange = { min: mid - halfSpan, max: mid + halfSpan };
             } else if (this.activeAction === 'draw') {
                 this.engine.drawingManager.onPointerMove(x, y);
             } else if (this.activeAction === 'select-drag' && this._dragTarget) {
@@ -220,18 +253,25 @@ export class EventManager {
 
     _onContextMenu(e) {
         e.preventDefault();
-        // FIX: Right-click on a drawing selects it and shows the settings card.
-        // Right-click on empty chart does nothing (just prevents browser menu).
         const { x, y } = this._getPos(e);
+        // FIX: Right-click on the PRICE AXIS resets the price scale to auto-fit.
+        // This is TradingView behavior — right-click on price axis → reset scale.
+        const vp = this.engine.viewport;
+        const priceAxisW = this.engine.priceScale.width;
+        if (x >= vp.width - priceAxisW) {
+            vp.autoScale = true;
+            vp.updatePriceRange(this.engine.dataManager);
+            this.engine.requestRender();
+            return;
+        }
+        // FIX: Right-click on a drawing selects it and shows the settings card.
         const drawing = this.engine.drawingManager.hitTestTopMost(x, y);
         if (drawing) {
-            // Select this drawing and show its settings card
             this.engine.drawingManager.handleClick(x, y);
             if (this.engine.drawingManager.selectedId === drawing.id) {
                 this.engine.settingsCard.show(drawing);
             }
         } else {
-            // If a settings card is open and user right-clicks elsewhere, hide it
             this.engine.settingsCard.hide();
         }
         this.engine.requestRender();
