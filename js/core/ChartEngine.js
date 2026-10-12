@@ -665,7 +665,13 @@ export class ChartEngine {
         // (the snapped index is meaningless there)
         const timeAxisRegion = regions.find(r => r.id === 'timeaxis');
         if (timeAxisRegion && !inPriceAxis) {
-            const idx = Math.round(vp.xToIndex(snappedX));
+            // FIX: Previously this used `Math.round(vp.xToIndex(snappedX))` where
+            // `snappedX` is the snapped bar's CENTER (fractional index = barIdx + 0.5).
+            // `Math.round(barIdx + 0.5)` returned `barIdx + 1`, causing the time label
+            // to display the NEXT minute instead of the CURRENT minute the cursor is
+            // actually hovering over. We now read the bar index directly from the
+            // cursor's X via `Math.floor()`, which is consistent with Crosshair.js.
+            const idx = this.crosshair._getSnappedIdx(vp);
             if (idx >= 0 && idx < dm.size) {
                 const time = dm.times[idx];
                 const d = new Date(time);
@@ -834,8 +840,17 @@ export class ChartEngine {
     }
     _formatTime(d, interval) {
         const pad = (n) => String(n).padStart(2, '0');
-        if (interval < 24 * 60 * 60 * 1000) {
-            return pad(d.getHours()) + ':' + pad(d.getMinutes());
+        const pad3 = (n) => String(n).padStart(3, '0');
+        const hhmm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+        if (interval < 1000) {
+            // sub-second: HH:MM:SS.mmm
+            return hhmm + ':' + pad(d.getSeconds()) + '.' + pad3(d.getMilliseconds());
+        } else if (interval < 60 * 1000) {
+            // sub-minute: HH:MM:SS
+            return hhmm + ':' + pad(d.getSeconds());
+        } else if (interval < 24 * 60 * 60 * 1000) {
+            // intraday (>= 1 minute): HH:MM
+            return hhmm;
         } else {
             return d.getDate() + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear();
         }
